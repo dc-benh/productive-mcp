@@ -2,6 +2,134 @@ import { z } from 'zod';
 import { ProductiveAPIClient } from '../api/client.js';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 
+const listCommentsSchema = z.object({
+  task_id: z.string().optional(),
+  project_id: z.string().optional(),
+  discussion_id: z.string().optional(),
+  draft: z.boolean().optional(),
+  limit: z.number().min(1).max(200).default(30).optional(),
+  page: z.number().min(1).optional(),
+});
+
+export async function listCommentsTool(
+  client: ProductiveAPIClient,
+  args: unknown
+): Promise<{ content: Array<{ type: string; text: string }> }> {
+  try {
+    const params = listCommentsSchema.parse(args);
+
+    const response = await client.listComments({
+      task_id: params.task_id,
+      project_id: params.project_id,
+      discussion_id: params.discussion_id,
+      draft: params.draft,
+      limit: params.limit,
+      page: params.page,
+    });
+
+    if (!response.data || response.data.length === 0) {
+      return {
+        content: [{ type: 'text', text: 'No comments found.' }],
+      };
+    }
+
+    // Build a lookup of included people for creator names
+    const includedPeople = new Map<string, string>();
+    if (response.included) {
+      for (const item of response.included) {
+        if (item.type === 'people' && item.attributes) {
+          const attrs = item.attributes as Record<string, string>;
+          includedPeople.set(item.id, `${attrs.first_name ?? ''} ${attrs.last_name ?? ''}`.trim());
+        }
+      }
+    }
+
+    const comments = response.data.map((comment) => {
+      const attrs = comment.attributes;
+      const creatorId = comment.relationships?.creator?.data?.id;
+      const creatorName = creatorId ? includedPeople.get(creatorId) : undefined;
+
+      let text = `[#${comment.id}] `;
+      if (creatorName) {
+        text += `${creatorName}: `;
+      }
+      text += attrs.body;
+      text += `\n  Type: ${attrs.commentable_type}`;
+      text += ` | Created: ${attrs.created_at}`;
+      if (attrs.edited_at) {
+        text += ` | Edited: ${attrs.edited_at}`;
+      }
+      if (attrs.pinned_at) {
+        text += ` | Pinned`;
+      }
+      if (attrs.draft) {
+        text += ` | Draft`;
+      }
+      return text;
+    });
+
+    let result = `Comments (${response.data.length}`;
+    if (response.meta?.total_count) {
+      result += ` of ${response.meta.total_count}`;
+    }
+    result += `):\n\n${comments.join('\n\n')}`;
+
+    return {
+      content: [{ type: 'text', text: result }],
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Invalid parameters: ${error.errors.map(e => e.message).join(', ')}`
+      );
+    }
+
+    throw new McpError(
+      ErrorCode.InternalError,
+      error instanceof Error ? error.message : 'Unknown error occurred'
+    );
+  }
+}
+
+export const listCommentsDefinition = {
+  name: 'list_comments',
+  description: 'List comments from Productive.io. Filter by task, project, or discussion. Returns comment body, author, and metadata.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      task_id: {
+        type: 'string',
+        description: 'Filter comments by task ID',
+      },
+      project_id: {
+        type: 'string',
+        description: 'Filter comments by project ID',
+      },
+      discussion_id: {
+        type: 'string',
+        description: 'Filter comments by discussion ID',
+      },
+      draft: {
+        type: 'boolean',
+        description: 'Filter by draft status (true/false)',
+      },
+      limit: {
+        type: 'number',
+        minimum: 1,
+        maximum: 200,
+        default: 30,
+        description: 'Number of results per page (default: 30, max: 200)',
+      },
+      page: {
+        type: 'number',
+        minimum: 1,
+        description: 'Page number for pagination',
+      },
+    },
+  },
+};
+
 const addTaskCommentSchema = z.object({
   task_id: z.string().min(1, 'Task ID is required'),
   comment: z.string().min(1, 'Comment text is required'),

@@ -13,7 +13,7 @@ import { listTaskLists, createTaskList, listTaskListsTool, createTaskListTool } 
 import { whoAmI, whoAmITool } from './tools/whoami.js';
 import { listActivities, listActivitiesTool } from './tools/activities.js';
 import { getRecentUpdates, getRecentUpdatesTool } from './tools/recent-updates.js';
-import { addTaskCommentTool, addTaskCommentDefinition } from './tools/comments.js';
+import { listCommentsTool, listCommentsDefinition, addTaskCommentTool, addTaskCommentDefinition } from './tools/comments.js';
 import { updateTaskStatusTool, updateTaskStatusDefinition } from './tools/task-status.js';
 import { listWorkflowStatusesTool, listWorkflowStatusesDefinition } from './tools/workflow-statuses.js';
 import { listTimeEntresTool, createTimeEntryTool, listServicesTool, getProjectServicesTool, listProjectDealsTool, listDealServicesTool, listTimeEntriesDefinition, createTimeEntryDefinition, listServicesDefinition, getProjectServicesDefinition, listProjectDealsDefinition, listDealServicesDefinition } from './tools/time-entries.js';
@@ -50,31 +50,21 @@ export async function createServer() {
       listCompaniesDefinition,
       listProjectsDefinition,
       listBoardsTool,
-      createBoardTool,
       listTaskListsTool,
-      createTaskListTool,
       listTasksDefinition,
       getProjectTasksDefinition,
       getTaskDefinition,
-      createTaskDefinition,
-      updateTaskAssignmentDefinition,
-      updateTaskDetailsDefinition,
-      addTaskCommentDefinition,
       updateTaskStatusDefinition,
       listWorkflowStatusesDefinition,
       myTasksDefinition,
       listActivitiesTool,
       getRecentUpdatesTool,
       listTimeEntriesDefinition,
-      createTimeEntryDefinition,
       listProjectDealsDefinition,
       listDealServicesDefinition,
       listServicesDefinition,
       getProjectServicesDefinition,
-      updateTaskSprintTool,
-      moveTaskToListTool,
-      addToBacklogTool,
-      taskRepositionDefinition,
+      listCommentsDefinition,
     ],
   }));
   
@@ -106,24 +96,6 @@ export async function createServer() {
       case 'list_boards':
         return await listBoards(apiClient, args);
         
-      case 'create_board':
-        return await createBoard(apiClient, args);
-        
-      case 'create_task':
-        return await createTaskTool(apiClient, args, config);
-        
-      case 'update_task_assignment':
-        return await updateTaskAssignmentTool(apiClient, args, config);
-        
-      case 'update_task_details':
-        return await updateTaskDetailsTool(apiClient, args);
-        
-      case 'add_task_comment':
-        return await addTaskCommentTool(apiClient, args);
-        
-      case 'update_task_status':
-        return await updateTaskStatusTool(apiClient, args);
-        
       case 'list_workflow_statuses':
         return await listWorkflowStatusesTool(apiClient, args);
         
@@ -142,37 +114,15 @@ export async function createServer() {
       case 'list_time_entries':
         return await listTimeEntresTool(apiClient, args, config);
         
-      case 'create_time_entry':
-        return await createTimeEntryTool(apiClient, args, config);
-        
-      case 'list_project_deals':
-        return await listProjectDealsTool(apiClient, args);
-        
-      case 'list_deal_services':
-        return await listDealServicesTool(apiClient, args);
-        
       case 'list_services':
         return await listServicesTool(apiClient, args);
         
       case 'get_project_services':
         return await getProjectServicesTool(apiClient, args);
         
-      case 'update_task_sprint':
-        return await updateTaskSprint(apiClient, args);
-        
-      case 'move_task_to_list':
-        return await moveTaskToList(apiClient, args);
-        
-      case 'add_to_backlog':
-        return await addToBacklog(apiClient, args);
-        
-      case 'reposition_task':
-        // Ensure args has the required taskId property
-        if (!args?.taskId) {
-          throw new Error('taskId is required for task repositioning');
-        }
-        return await taskRepositionTool(apiClient, args as z.infer<typeof taskRepositionSchema>);
-        
+      case 'list_comments':
+        return await listCommentsTool(apiClient, args);
+
       default:
         throw new Error(`Unknown tool: ${name}`);
     }

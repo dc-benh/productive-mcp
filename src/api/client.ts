@@ -342,6 +342,48 @@ export class ProductiveAPIClient {
     return this.makeRequest<ProductiveResponse<ProductiveActivity>>(path);
   }
 
+  async listComments(params?: {
+    task_id?: string;
+    project_id?: string;
+    discussion_id?: string;
+    draft?: boolean;
+    limit?: number;
+    page?: number;
+  }): Promise<ProductiveResponse<ProductiveComment>> {
+    const queryParams = new URLSearchParams();
+
+    queryParams.append('include', 'creator');
+
+    if (params?.task_id) {
+      queryParams.append('filter[task_id]', params.task_id);
+    }
+
+    if (params?.project_id) {
+      queryParams.append('filter[project_id]', params.project_id);
+    }
+
+    if (params?.discussion_id) {
+      queryParams.append('filter[discussion_id]', params.discussion_id);
+    }
+
+    if (params?.draft !== undefined) {
+      queryParams.append('filter[draft]', params.draft.toString());
+    }
+
+    if (params?.limit) {
+      queryParams.append('page[size]', params.limit.toString());
+    }
+
+    if (params?.page) {
+      queryParams.append('page[number]', params.page.toString());
+    }
+
+    const queryString = queryParams.toString();
+    const path = `comments${queryString ? `?${queryString}` : ''}`;
+
+    return this.makeRequest<ProductiveResponse<ProductiveComment>>(path);
+  }
+
   async createComment(commentData: ProductiveCommentCreate): Promise<ProductiveSingleResponse<ProductiveComment>> {
     return this.makeRequest<ProductiveSingleResponse<ProductiveComment>>('comments', {
       method: 'POST',

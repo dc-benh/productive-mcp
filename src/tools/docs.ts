@@ -196,7 +196,7 @@ export const listDocsDefinition = {
 
 const createDocSchema = z.object({
   title: z.string().min(1, 'Title is required'),
-  body: z.string().optional(),
+  body: z.union([z.string(), z.record(z.any())]).optional(),
   project_id: z.string().min(1, 'Project ID is required'),
   parent_page_id: z.string().optional(),
 });
@@ -214,13 +214,45 @@ function textToDocBody(text: string): string {
   return JSON.stringify({ type: 'doc', content });
 }
 
-function isJsonDocBody(text: string): boolean {
-  try {
-    const parsed = JSON.parse(text);
-    return parsed?.type === 'doc' && Array.isArray(parsed?.content);
-  } catch {
-    return false;
+/**
+ * Normalize a doc body value into a valid JSON string for the Productive API.
+ * Handles: objects (from MCP parsing), valid JSON strings, truncated JSON, and plain text.
+ */
+function normalizeDocBody(body: unknown): string {
+  // Case 1: body arrived as a parsed object (MCP framework may parse JSON params)
+  if (typeof body === 'object' && body !== null) {
+    const obj = body as Record<string, unknown>;
+    if (obj.type === 'doc' && Array.isArray(obj.content)) {
+      return JSON.stringify(body);
+    }
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      'Invalid doc body object: must have type "doc" and content array'
+    );
   }
+
+  if (typeof body !== 'string') {
+    throw new McpError(ErrorCode.InvalidParams, 'Body must be a string or doc JSON object');
+  }
+
+  // Case 2: looks like JSON doc format — validate it fully
+  if (body.trimStart().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed?.type === 'doc' && Array.isArray(parsed?.content)) {
+        return body; // Valid JSON doc string, pass through
+      }
+    } catch {
+      // Starts with { but fails to parse — likely truncated JSON. Reject it.
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        'Body appears to be JSON but failed to parse (possibly truncated). Cannot safely update.'
+      );
+    }
+  }
+
+  // Case 3: plain text — convert to doc format
+  return textToDocBody(body);
 }
 
 export async function createDocTool(
@@ -230,10 +262,8 @@ export async function createDocTool(
   try {
     const params = createDocSchema.parse(args);
 
-    // If body is provided, convert plain text to doc format if needed
-    const body = params.body
-      ? (isJsonDocBody(params.body) ? params.body : textToDocBody(params.body))
-      : undefined;
+    // Normalize body: handles objects, JSON strings, plain text, and truncated JSON
+    const body = params.body !== undefined ? normalizeDocBody(params.body) : undefined;
 
     const parentId = params.parent_page_id
       ? parseInt(params.parent_page_id, 10)
@@ -310,7 +340,7 @@ export const createDocDefinition = {
 const updateDocSchema = z.object({
   page_id: z.string().min(1, 'Page ID is required'),
   title: z.string().min(1).optional(),
-  body: z.string().optional(),
+  body: z.union([z.string(), z.record(z.any())]).optional(),
 });
 
 export async function updateDocTool(
@@ -327,9 +357,8 @@ export async function updateDocTool(
       );
     }
 
-    const body = params.body !== undefined
-      ? (isJsonDocBody(params.body) ? params.body : textToDocBody(params.body))
-      : undefined;
+    // Normalize body: handles objects, JSON strings, plain text, and truncated JSON
+    const body = params.body !== undefined ? normalizeDocBody(params.body) : undefined;
 
     const response = await client.updatePage(params.page_id, {
       data: {

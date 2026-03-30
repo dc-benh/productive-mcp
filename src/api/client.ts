@@ -779,6 +779,44 @@ export class ProductiveAPIClient {
     );
   }
 
+  async createPage(pageData: {
+    data: {
+      type: 'pages';
+      attributes: {
+        title: string;
+        body?: string;
+        parent_page_id?: number;
+        root_page_id?: number;
+      };
+      relationships: {
+        project: {
+          data: { id: string; type: 'projects' };
+        };
+      };
+    };
+  }): Promise<ProductiveSingleResponse<ProductivePage>> {
+    return this.makeRequest<ProductiveSingleResponse<ProductivePage>>('pages', {
+      method: 'POST',
+      body: JSON.stringify(pageData),
+    });
+  }
+
+  async updatePage(pageId: string, pageData: {
+    data: {
+      type: 'pages';
+      id: string;
+      attributes: {
+        title?: string;
+        body?: string;
+      };
+    };
+  }): Promise<ProductiveSingleResponse<ProductivePage>> {
+    return this.makeRequest<ProductiveSingleResponse<ProductivePage>>(`pages/${pageId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(pageData),
+    });
+  }
+
   /**
    * Reposition a task in a task list
    * 

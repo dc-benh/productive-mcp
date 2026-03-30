@@ -21,7 +21,7 @@ import { updateTaskSprint, updateTaskSprintTool } from './tools/task-sprint.js';
 import { moveTaskToList, moveTaskToListTool } from './tools/task-list-move.js';
 import { addToBacklog, addToBacklogTool } from './tools/task-backlog.js';
 import { taskRepositionTool, taskRepositionDefinition, taskRepositionSchema } from './tools/task-reposition.js';
-import { listDocsTool, listDocsDefinition, getDocTool, getDocDefinition } from './tools/docs.js';
+import { listDocsTool, listDocsDefinition, getDocTool, getDocDefinition, createDocTool, createDocDefinition, updateDocTool, updateDocDefinition } from './tools/docs.js';
 import { generateTimesheetPrompt, timesheetPromptDefinition, generateQuickTimesheetPrompt, quickTimesheetPromptDefinition } from './prompts/timesheet.js';
 
 export async function createServer() {
@@ -70,6 +70,8 @@ export async function createServer() {
       listDocsDefinition,
       getDocDefinition,
       // Write tools (re-enabled)
+      createDocDefinition,
+      updateDocDefinition,
       addTaskCommentDefinition,
       createTaskDefinition,
       updateTaskAssignmentDefinition,
@@ -150,6 +152,12 @@ export async function createServer() {
 
       case 'get_doc':
         return await getDocTool(apiClient, args);
+
+      case 'create_doc':
+        return await createDocTool(apiClient, args);
+
+      case 'update_doc':
+        return await updateDocTool(apiClient, args);
 
       case 'add_task_comment':
         return await addTaskCommentTool(apiClient, args);

@@ -192,6 +192,204 @@ export const listDocsDefinition = {
   },
 };
 
+// --- create_doc ---
+
+const createDocSchema = z.object({
+  title: z.string().min(1, 'Title is required'),
+  body: z.string().optional(),
+  project_id: z.string().min(1, 'Project ID is required'),
+  parent_page_id: z.string().optional(),
+});
+
+/**
+ * Convert plain text to Productive's ProseMirror-like JSON doc format.
+ * Splits on double newlines into paragraphs.
+ */
+function textToDocBody(text: string): string {
+  const paragraphs = text.split(/\n{2,}/).filter(p => p.trim());
+  const content = paragraphs.map(p => ({
+    type: 'paragraph',
+    content: [{ type: 'text', text: p.trim() }],
+  }));
+  return JSON.stringify({ type: 'doc', content });
+}
+
+function isJsonDocBody(text: string): boolean {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed?.type === 'doc' && Array.isArray(parsed?.content);
+  } catch {
+    return false;
+  }
+}
+
+export async function createDocTool(
+  client: ProductiveAPIClient,
+  args: unknown
+): Promise<{ content: Array<{ type: string; text: string }> }> {
+  try {
+    const params = createDocSchema.parse(args);
+
+    // If body is provided, convert plain text to doc format if needed
+    const body = params.body
+      ? (isJsonDocBody(params.body) ? params.body : textToDocBody(params.body))
+      : undefined;
+
+    const parentId = params.parent_page_id
+      ? parseInt(params.parent_page_id, 10)
+      : undefined;
+
+    const response = await client.createPage({
+      data: {
+        type: 'pages',
+        attributes: {
+          title: params.title,
+          ...(body ? { body } : {}),
+          ...(parentId ? { parent_page_id: parentId, root_page_id: parentId } : {}),
+        },
+        relationships: {
+          project: {
+            data: { id: params.project_id, type: 'projects' },
+          },
+        },
+      },
+    });
+
+    const page = response.data;
+    let text = `Doc created successfully!\n`;
+    text += `Title: ${page.attributes.title}\n`;
+    text += `ID: ${page.id}\n`;
+    text += `Project ID: ${params.project_id}\n`;
+    if (params.parent_page_id) text += `Parent page ID: ${params.parent_page_id}\n`;
+    if (page.attributes.created_at) text += `Created: ${page.attributes.created_at}\n`;
+
+    return { content: [{ type: 'text', text }] };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Invalid parameters: ${error.errors.map(e => e.message).join(', ')}`
+      );
+    }
+    throw new McpError(
+      ErrorCode.InternalError,
+      error instanceof Error ? error.message : 'Unknown error occurred'
+    );
+  }
+}
+
+export const createDocDefinition = {
+  name: 'create_doc',
+  description: 'Create a new doc/page in Productive.io. Can create root docs or sub-pages under an existing doc. Body can be plain text (auto-converted) or raw ProseMirror JSON.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      title: {
+        type: 'string',
+        description: 'Title of the doc/page (required)',
+      },
+      body: {
+        type: 'string',
+        description: 'Content of the doc. Plain text (auto-converted to doc format) or raw ProseMirror JSON (if starts with {"type":"doc",...})',
+      },
+      project_id: {
+        type: 'string',
+        description: 'Project ID to create the doc under (required)',
+      },
+      parent_page_id: {
+        type: 'string',
+        description: 'Parent page ID to create a sub-page under an existing doc. Omit to create a root doc.',
+      },
+    },
+    required: ['title', 'project_id'],
+  },
+};
+
+// --- update_doc ---
+
+const updateDocSchema = z.object({
+  page_id: z.string().min(1, 'Page ID is required'),
+  title: z.string().min(1).optional(),
+  body: z.string().optional(),
+});
+
+export async function updateDocTool(
+  client: ProductiveAPIClient,
+  args: unknown
+): Promise<{ content: Array<{ type: string; text: string }> }> {
+  try {
+    const params = updateDocSchema.parse(args);
+
+    if (!params.title && params.body === undefined) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        'At least one field (title or body) must be provided for update'
+      );
+    }
+
+    const body = params.body !== undefined
+      ? (isJsonDocBody(params.body) ? params.body : textToDocBody(params.body))
+      : undefined;
+
+    const response = await client.updatePage(params.page_id, {
+      data: {
+        type: 'pages',
+        id: params.page_id,
+        attributes: {
+          ...(params.title ? { title: params.title } : {}),
+          ...(body !== undefined ? { body } : {}),
+        },
+      },
+    });
+
+    const page = response.data;
+    let text = `Doc updated successfully!\n`;
+    text += `ID: ${page.id}\n`;
+    text += `Title: ${page.attributes.title}\n`;
+    if (params.title) text += `✓ Title updated\n`;
+    if (params.body !== undefined) text += `✓ Body updated\n`;
+    text += `Updated: ${page.attributes.updated_at}\n`;
+    text += `\n⚠️ Note: Changes may take up to 1 hour to appear if the doc is open in the UI.`;
+
+    return { content: [{ type: 'text', text }] };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Invalid parameters: ${error.errors.map(e => e.message).join(', ')}`
+      );
+    }
+    if (error instanceof McpError) throw error;
+    throw new McpError(
+      ErrorCode.InternalError,
+      error instanceof Error ? error.message : 'Unknown error occurred'
+    );
+  }
+}
+
+export const updateDocDefinition = {
+  name: 'update_doc',
+  description: 'Update an existing doc/page in Productive.io. Can update title and/or body. WARNING: Do not update while the doc is open in the UI. Body can be plain text or raw ProseMirror JSON.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      page_id: {
+        type: 'string',
+        description: 'The ID of the doc/page to update (required)',
+      },
+      title: {
+        type: 'string',
+        description: 'New title for the doc (optional)',
+      },
+      body: {
+        type: 'string',
+        description: 'New content. Plain text (auto-converted) or raw ProseMirror JSON. Use empty string to clear.',
+      },
+    },
+    required: ['page_id'],
+  },
+};
+
 // --- get_doc ---
 
 const getDocSchema = z.object({

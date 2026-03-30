@@ -46,6 +46,7 @@ export async function createServer() {
   // Register handlers
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
+      // Read tools (aligned with upstream)
       whoAmITool,
       listCompaniesDefinition,
       listProjectsDefinition,
@@ -65,6 +66,18 @@ export async function createServer() {
       listServicesDefinition,
       getProjectServicesDefinition,
       listCommentsDefinition,
+      // Write tools (re-enabled)
+      addTaskCommentDefinition,
+      createTaskDefinition,
+      updateTaskAssignmentDefinition,
+      updateTaskDetailsDefinition,
+      createBoardTool,
+      createTaskListTool,
+      createTimeEntryDefinition,
+      updateTaskSprintTool,
+      moveTaskToListTool,
+      addToBacklogTool,
+      taskRepositionDefinition,
     ],
   }));
   
@@ -114,14 +127,53 @@ export async function createServer() {
       case 'list_time_entries':
         return await listTimeEntresTool(apiClient, args, config);
         
+      case 'list_project_deals':
+        return await listProjectDealsTool(apiClient, args);
+
+      case 'list_deal_services':
+        return await listDealServicesTool(apiClient, args);
+
       case 'list_services':
         return await listServicesTool(apiClient, args);
-        
+
       case 'get_project_services':
         return await getProjectServicesTool(apiClient, args);
-        
+
       case 'list_comments':
         return await listCommentsTool(apiClient, args);
+
+      case 'add_task_comment':
+        return await addTaskCommentTool(apiClient, args);
+
+      case 'create_task':
+        return await createTaskTool(apiClient, args, config);
+
+      case 'update_task_assignment':
+        return await updateTaskAssignmentTool(apiClient, args, config);
+
+      case 'update_task_details':
+        return await updateTaskDetailsTool(apiClient, args);
+
+      case 'update_task_status':
+        return await updateTaskStatusTool(apiClient, args);
+
+      case 'create_board':
+        return await createBoard(apiClient, args);
+
+      case 'create_time_entry':
+        return await createTimeEntryTool(apiClient, args, config);
+
+      case 'update_task_sprint':
+        return await updateTaskSprint(apiClient, args);
+
+      case 'move_task_to_list':
+        return await moveTaskToList(apiClient, args);
+
+      case 'add_to_backlog':
+        return await addToBacklog(apiClient, args);
+
+      case 'reposition_task':
+        return await taskRepositionTool(apiClient, taskRepositionSchema.parse(args));
 
       default:
         throw new Error(`Unknown tool: ${name}`);

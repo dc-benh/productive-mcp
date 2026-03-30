@@ -92,11 +92,6 @@ export interface ProductiveResponse<T> {
     total_pages?: number;
     total_count?: number;
   };
-  included?: Array<{
-    id: string;
-    type: string;
-    attributes?: Record<string, unknown>;
-  }>;
 }
 
 export interface ProductiveBoard {

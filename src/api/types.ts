@@ -518,6 +518,49 @@ export interface ProductiveTimeEntryCreate {
   };
 }
 
+export interface ProductivePage {
+  id: string;
+  type: 'pages';
+  attributes: {
+    title: string;
+    body?: string;
+    parent_page_id?: number;
+    root_page_id?: number;
+    position?: number;
+    created_at: string;
+    edited_at?: string;
+    updated_at: string;
+    [key: string]: any;
+  };
+  relationships?: {
+    project?: {
+      data: {
+        id: string;
+        type: 'projects';
+      };
+    };
+    creator?: {
+      data: {
+        id: string;
+        type: 'people';
+      };
+    };
+    parent_page?: {
+      data: {
+        id: string;
+        type: 'pages';
+      } | null;
+    };
+    root_page?: {
+      data: {
+        id: string;
+        type: 'pages';
+      } | null;
+    };
+    [key: string]: any;
+  };
+}
+
 export interface ProductiveError {
   errors: Array<{
     status?: string;

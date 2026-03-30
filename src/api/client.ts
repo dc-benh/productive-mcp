@@ -1,8 +1,8 @@
 import { Config } from '../config/index.js';
-import { 
-  ProductiveCompany, 
-  ProductiveProject, 
-  ProductiveTask, 
+import {
+  ProductiveCompany,
+  ProductiveProject,
+  ProductiveTask,
   ProductiveBoard,
   ProductiveTaskList,
   ProductivePerson,
@@ -12,7 +12,8 @@ import {
   ProductiveService,
   ProductiveTimeEntry,
   ProductiveDeal,
-  ProductiveResponse, 
+  ProductivePage,
+  ProductiveResponse,
   ProductiveSingleResponse,
   ProductiveTaskCreate,
   ProductiveTaskUpdate,
@@ -20,7 +21,7 @@ import {
   ProductiveTaskListCreate,
   ProductiveCommentCreate,
   ProductiveTimeEntryCreate,
-  ProductiveError 
+  ProductiveError
 } from './types.js';
 
 export class ProductiveAPIClient {
@@ -738,6 +739,44 @@ export class ProductiveAPIClient {
       date: today,
       ...additionalParams
     });
+  }
+
+  async listPages(params?: {
+    project_id?: string;
+    creator_id?: string;
+    limit?: number;
+    page?: number;
+  }): Promise<ProductiveResponse<ProductivePage>> {
+    const queryParams = new URLSearchParams();
+
+    queryParams.append('include', 'creator,project,parent_page,root_page');
+
+    if (params?.project_id) {
+      queryParams.append('filter[project_id]', params.project_id);
+    }
+
+    if (params?.creator_id) {
+      queryParams.append('filter[creator_id]', params.creator_id);
+    }
+
+    if (params?.limit) {
+      queryParams.append('page[size]', params.limit.toString());
+    }
+
+    if (params?.page) {
+      queryParams.append('page[number]', params.page.toString());
+    }
+
+    const queryString = queryParams.toString();
+    const path = `pages${queryString ? `?${queryString}` : ''}`;
+
+    return this.makeRequest<ProductiveResponse<ProductivePage>>(path);
+  }
+
+  async getPage(pageId: string): Promise<ProductiveSingleResponse<ProductivePage> & { included?: Array<{ id: string; type: string; attributes: Record<string, any> }> }> {
+    return this.makeRequest<ProductiveSingleResponse<ProductivePage> & { included?: Array<{ id: string; type: string; attributes: Record<string, any> }> }>(
+      `pages/${pageId}?include=creator,project,parent_page,root_page`
+    );
   }
 
   /**

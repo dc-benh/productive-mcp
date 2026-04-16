@@ -55,6 +55,7 @@ export async function listCommentsTool(
       }
       text += attrs.body;
       text += `\n  Type: ${attrs.commentable_type}`;
+      text += ` | ${attrs.hidden ? 'Hidden' : 'Visible'}`;
       text += ` | Created: ${attrs.created_at}`;
       if (attrs.edited_at) {
         text += ` | Edited: ${attrs.edited_at}`;
@@ -133,6 +134,7 @@ export const listCommentsDefinition = {
 const addTaskCommentSchema = z.object({
   task_id: z.string().min(1, 'Task ID is required'),
   comment: z.string().min(1, 'Comment text is required'),
+  hidden: z.boolean().optional(),
 });
 
 export async function addTaskCommentTool(
@@ -147,6 +149,7 @@ export async function addTaskCommentTool(
         type: 'comments' as const,
         attributes: {
           body: params.comment,
+          ...(params.hidden !== undefined ? { hidden: params.hidden } : {}),
         },
         relationships: {
           task: {
@@ -165,6 +168,7 @@ export async function addTaskCommentTool(
     text += `Task ID: ${params.task_id}\n`;
     text += `Comment: ${response.data.attributes.body}\n`;
     text += `Comment ID: ${response.data.id}`;
+    text += `\nVisibility: ${response.data.attributes.hidden ? 'Hidden from client' : 'Visible to client'}`;
     if (response.data.attributes.created_at) {
       text += `\nCreated at: ${response.data.attributes.created_at}`;
     }
@@ -192,7 +196,7 @@ export async function addTaskCommentTool(
 
 export const addTaskCommentDefinition = {
   name: 'add_task_comment',
-  description: 'Add a comment to a task in Productive.io. Supports HTML formatting.',
+  description: 'Add a comment to a task in Productive.io. Supports HTML formatting. By default comments are hidden from client — set hidden=false to make visible.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -203,6 +207,10 @@ export const addTaskCommentDefinition = {
       comment: {
         type: 'string',
         description: 'Comment content (required). Supports HTML formatting with tags like <div>, <p>, <strong>, <em>, <ul>, <li>, <a href="">.',
+      },
+      hidden: {
+        type: 'boolean',
+        description: 'Whether the comment is hidden from the client. true = hidden (default), false = visible to client.',
       },
     },
     required: ['task_id', 'comment'],
@@ -247,6 +255,7 @@ export async function getCommentTool(
     text += `Type: ${attrs.commentable_type}\n`;
     const taskId = comment.relationships?.task?.data?.id;
     if (taskId) text += `Task ID: ${taskId}\n`;
+    text += `Visibility: ${attrs.hidden ? 'Hidden from client' : 'Visible to client'}\n`;
     text += `Created: ${attrs.created_at}\n`;
     if (attrs.edited_at) text += `Edited: ${attrs.edited_at}\n`;
     if (attrs.pinned_at) text += `Pinned: ${attrs.pinned_at}\n`;
@@ -288,7 +297,8 @@ export const getCommentDefinition = {
 
 const updateTaskCommentSchema = z.object({
   comment_id: z.string().min(1, 'Comment ID is required'),
-  comment: z.string().min(1, 'Comment text is required'),
+  comment: z.string().optional(),
+  hidden: z.boolean().optional(),
 });
 
 export async function updateTaskCommentTool(
@@ -298,12 +308,20 @@ export async function updateTaskCommentTool(
   try {
     const params = updateTaskCommentSchema.parse(args);
 
+    if (!params.comment && params.hidden === undefined) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        'At least one of comment or hidden must be provided'
+      );
+    }
+
     const response = await client.updateComment(params.comment_id, {
       data: {
         type: 'comments',
         id: params.comment_id,
         attributes: {
-          body: params.comment,
+          ...(params.comment !== undefined ? { body: params.comment } : {}),
+          ...(params.hidden !== undefined ? { hidden: params.hidden } : {}),
         },
       },
     });
@@ -311,7 +329,8 @@ export async function updateTaskCommentTool(
     const attrs = response.data.attributes;
     let text = `Comment updated successfully!\n`;
     text += `Comment ID: ${response.data.id}\n`;
-    text += `Body: ${attrs.body}\n`;
+    if (params.comment !== undefined) text += `Body: ${attrs.body}\n`;
+    text += `Visibility: ${attrs.hidden ? 'Hidden from client' : 'Visible to client'}\n`;
     if (attrs.edited_at) text += `Edited at: ${attrs.edited_at}\n`;
     else if (attrs.updated_at) text += `Updated at: ${attrs.updated_at}\n`;
 
@@ -332,7 +351,7 @@ export async function updateTaskCommentTool(
 
 export const updateTaskCommentDefinition = {
   name: 'update_task_comment',
-  description: 'Update the body of an existing comment in Productive.io. Supports HTML formatting.',
+  description: 'Update an existing comment in Productive.io. Can change the body, toggle visibility (hidden), or both.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -342,10 +361,14 @@ export const updateTaskCommentDefinition = {
       },
       comment: {
         type: 'string',
-        description: 'New comment content (required). Supports HTML formatting.',
+        description: 'New comment content. Supports HTML formatting.',
+      },
+      hidden: {
+        type: 'boolean',
+        description: 'Set visibility. true = hidden from client, false = visible to client.',
       },
     },
-    required: ['comment_id', 'comment'],
+    required: ['comment_id'],
   },
 };
 

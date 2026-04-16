@@ -208,3 +208,193 @@ export const addTaskCommentDefinition = {
     required: ['task_id', 'comment'],
   },
 };
+
+// --- get_comment ---
+
+const getCommentSchema = z.object({
+  comment_id: z.string().min(1, 'Comment ID is required'),
+});
+
+export async function getCommentTool(
+  client: ProductiveAPIClient,
+  args: unknown
+): Promise<{ content: Array<{ type: string; text: string }> }> {
+  try {
+    const params = getCommentSchema.parse(args);
+
+    const response = await client.getComment(params.comment_id);
+    const comment = response.data;
+    const attrs = comment.attributes;
+
+    const creatorId = comment.relationships?.creator?.data?.id;
+    let creatorName: string | undefined;
+    if (creatorId && response.included) {
+      const creator = response.included.find(i => i.type === 'people' && i.id === creatorId);
+      if (creator) {
+        const first = creator.attributes.first_name ?? '';
+        const last = creator.attributes.last_name ?? '';
+        creatorName = `${first} ${last}`.trim() || undefined;
+      }
+    }
+
+    let text = `Comment Details:\n\n`;
+    text += `ID: ${comment.id}\n`;
+    if (creatorName) {
+      text += `Creator: ${creatorName} (ID: ${creatorId})\n`;
+    } else if (creatorId) {
+      text += `Creator ID: ${creatorId}\n`;
+    }
+    text += `Type: ${attrs.commentable_type}\n`;
+    const taskId = comment.relationships?.task?.data?.id;
+    if (taskId) text += `Task ID: ${taskId}\n`;
+    text += `Created: ${attrs.created_at}\n`;
+    if (attrs.edited_at) text += `Edited: ${attrs.edited_at}\n`;
+    if (attrs.pinned_at) text += `Pinned: ${attrs.pinned_at}\n`;
+    if (attrs.draft) text += `Draft: true\n`;
+    if (attrs.deleted_at) text += `Deleted: ${attrs.deleted_at}\n`;
+    text += `\n--- Body ---\n${attrs.body}`;
+
+    return { content: [{ type: 'text', text }] };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Invalid parameters: ${error.errors.map(e => e.message).join(', ')}`
+      );
+    }
+    throw new McpError(
+      ErrorCode.InternalError,
+      error instanceof Error ? error.message : 'Unknown error occurred'
+    );
+  }
+}
+
+export const getCommentDefinition = {
+  name: 'get_comment',
+  description: 'Get a single comment by its ID from Productive.io. Returns the full body, creator, and metadata. Use this to look up a specific comment (e.g. after resolving an activity ID via get_activity).',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      comment_id: {
+        type: 'string',
+        description: 'The ID of the comment to retrieve (required). This is the numeric comment ID shown as [#12345] in list_comments output.',
+      },
+    },
+    required: ['comment_id'],
+  },
+};
+
+// --- update_task_comment ---
+
+const updateTaskCommentSchema = z.object({
+  comment_id: z.string().min(1, 'Comment ID is required'),
+  comment: z.string().min(1, 'Comment text is required'),
+});
+
+export async function updateTaskCommentTool(
+  client: ProductiveAPIClient,
+  args: unknown
+): Promise<{ content: Array<{ type: string; text: string }> }> {
+  try {
+    const params = updateTaskCommentSchema.parse(args);
+
+    const response = await client.updateComment(params.comment_id, {
+      data: {
+        type: 'comments',
+        id: params.comment_id,
+        attributes: {
+          body: params.comment,
+        },
+      },
+    });
+
+    const attrs = response.data.attributes;
+    let text = `Comment updated successfully!\n`;
+    text += `Comment ID: ${response.data.id}\n`;
+    text += `Body: ${attrs.body}\n`;
+    if (attrs.edited_at) text += `Edited at: ${attrs.edited_at}\n`;
+    else if (attrs.updated_at) text += `Updated at: ${attrs.updated_at}\n`;
+
+    return { content: [{ type: 'text', text }] };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Invalid parameters: ${error.errors.map(e => e.message).join(', ')}`
+      );
+    }
+    throw new McpError(
+      ErrorCode.InternalError,
+      error instanceof Error ? error.message : 'Unknown error occurred'
+    );
+  }
+}
+
+export const updateTaskCommentDefinition = {
+  name: 'update_task_comment',
+  description: 'Update the body of an existing comment in Productive.io. Supports HTML formatting.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      comment_id: {
+        type: 'string',
+        description: 'The ID of the comment to update (required)',
+      },
+      comment: {
+        type: 'string',
+        description: 'New comment content (required). Supports HTML formatting.',
+      },
+    },
+    required: ['comment_id', 'comment'],
+  },
+};
+
+// --- delete_task_comment ---
+
+const deleteTaskCommentSchema = z.object({
+  comment_id: z.string().min(1, 'Comment ID is required'),
+});
+
+export async function deleteTaskCommentTool(
+  client: ProductiveAPIClient,
+  args: unknown
+): Promise<{ content: Array<{ type: string; text: string }> }> {
+  try {
+    const params = deleteTaskCommentSchema.parse(args);
+
+    await client.deleteComment(params.comment_id);
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Comment ${params.comment_id} deleted successfully.`,
+      }],
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Invalid parameters: ${error.errors.map(e => e.message).join(', ')}`
+      );
+    }
+    throw new McpError(
+      ErrorCode.InternalError,
+      error instanceof Error ? error.message : 'Unknown error occurred'
+    );
+  }
+}
+
+export const deleteTaskCommentDefinition = {
+  name: 'delete_task_comment',
+  description: 'Delete a comment from Productive.io by its ID. This action cannot be undone.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      comment_id: {
+        type: 'string',
+        description: 'The ID of the comment to delete (required)',
+      },
+    },
+    required: ['comment_id'],
+  },
+};

@@ -11,9 +11,20 @@ import { myTasksTool, myTasksDefinition } from './tools/my-tasks.js';
 import { listBoards, createBoard, listBoardsTool, createBoardTool } from './tools/boards.js';
 import { listTaskLists, createTaskList, listTaskListsTool, createTaskListTool } from './tools/task-lists.js';
 import { whoAmI, whoAmITool } from './tools/whoami.js';
-import { listActivities, listActivitiesTool } from './tools/activities.js';
+import { listActivities, listActivitiesTool, getActivity, getActivityTool } from './tools/activities.js';
 import { getRecentUpdates, getRecentUpdatesTool } from './tools/recent-updates.js';
-import { listCommentsTool, listCommentsDefinition, addTaskCommentTool, addTaskCommentDefinition } from './tools/comments.js';
+import {
+  listCommentsTool,
+  listCommentsDefinition,
+  addTaskCommentTool,
+  addTaskCommentDefinition,
+  getCommentTool,
+  getCommentDefinition,
+  updateTaskCommentTool,
+  updateTaskCommentDefinition,
+  deleteTaskCommentTool,
+  deleteTaskCommentDefinition,
+} from './tools/comments.js';
 import { updateTaskStatusTool, updateTaskStatusDefinition } from './tools/task-status.js';
 import { listWorkflowStatusesTool, listWorkflowStatusesDefinition } from './tools/workflow-statuses.js';
 import { listTimeEntresTool, createTimeEntryTool, listServicesTool, getProjectServicesTool, listProjectDealsTool, listDealServicesTool, listTimeEntriesDefinition, createTimeEntryDefinition, listServicesDefinition, getProjectServicesDefinition, listProjectDealsDefinition, listDealServicesDefinition } from './tools/time-entries.js';
@@ -60,6 +71,7 @@ export async function createServer() {
       listWorkflowStatusesDefinition,
       myTasksDefinition,
       listActivitiesTool,
+      getActivityTool,
       getRecentUpdatesTool,
       listTimeEntriesDefinition,
       listProjectDealsDefinition,
@@ -67,12 +79,15 @@ export async function createServer() {
       listServicesDefinition,
       getProjectServicesDefinition,
       listCommentsDefinition,
+      getCommentDefinition,
       listDocsDefinition,
       getDocDefinition,
       // Write tools (re-enabled)
       createDocDefinition,
       updateDocDefinition,
       addTaskCommentDefinition,
+      updateTaskCommentDefinition,
+      deleteTaskCommentDefinition,
       createTaskDefinition,
       updateTaskAssignmentDefinition,
       updateTaskDetailsDefinition,
@@ -125,7 +140,10 @@ export async function createServer() {
         
       case 'list_activities':
         return await listActivities(apiClient, args);
-        
+
+      case 'get_activity':
+        return await getActivity(apiClient, args);
+
       case 'get_recent_updates':
         return await getRecentUpdates(apiClient, args);
         
@@ -147,6 +165,9 @@ export async function createServer() {
       case 'list_comments':
         return await listCommentsTool(apiClient, args);
 
+      case 'get_comment':
+        return await getCommentTool(apiClient, args);
+
       case 'list_docs':
         return await listDocsTool(apiClient, args);
 
@@ -161,6 +182,12 @@ export async function createServer() {
 
       case 'add_task_comment':
         return await addTaskCommentTool(apiClient, args);
+
+      case 'update_task_comment':
+        return await updateTaskCommentTool(apiClient, args);
+
+      case 'delete_task_comment':
+        return await deleteTaskCommentTool(apiClient, args);
 
       case 'create_task':
         return await createTaskTool(apiClient, args, config);

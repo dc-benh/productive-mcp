@@ -110,6 +110,77 @@ export async function listActivities(
   }
 }
 
+// --- get_activity ---
+
+const GetActivityRequestSchema = z.object({
+  activity_id: z.string().min(1, 'Activity ID is required'),
+});
+
+export async function getActivity(
+  client: ProductiveAPIClient,
+  args: unknown
+): Promise<{ content: Array<{ type: string; text: string }> }> {
+  try {
+    const params = GetActivityRequestSchema.parse(args);
+
+    const response = await client.getActivity(params.activity_id);
+    const activity = response.data;
+    const attrs = activity.attributes;
+
+    let text = `Activity Details:\n\n`;
+    text += `Activity ID: ${activity.id}\n`;
+    text += `Event: ${attrs.event}\n`;
+    text += `Item Type: ${attrs.item_type}\n`;
+    text += `Item ID: ${attrs.item_id}\n`;
+    text += `Created: ${attrs.created_at}\n`;
+
+    const creatorId = activity.relationships?.creator?.data?.id;
+    if (creatorId) text += `Creator ID: ${creatorId}\n`;
+
+    if (attrs.changes && Object.keys(attrs.changes).length > 0) {
+      text += `\nChanges:\n`;
+      for (const [key, value] of Object.entries(attrs.changes)) {
+        text += `  ${key}: ${JSON.stringify(value)}\n`;
+      }
+    }
+
+    if (attrs.item_type?.toLowerCase() === 'comment') {
+      text += `\nTip: use get_comment with comment_id=${attrs.item_id} to fetch the comment body.`;
+    }
+
+    return {
+      content: [{ type: 'text', text }],
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Invalid parameters: ${error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')}`
+      );
+    }
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Failed to get activity: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
+}
+
+export const getActivityTool = {
+  name: 'get_activity',
+  description: 'Get a single activity by ID. Useful for resolving a taskActivityId from a Productive URL (e.g. ?taskActivityId=258940534) to the underlying item (comment, task change, etc.). For comment activities, pair with get_comment using the returned item_id.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      activity_id: {
+        type: 'string',
+        description: 'The activity ID to retrieve (required). This is the numeric ID from a Productive URL, e.g. ?taskActivityId=258940534',
+      },
+    },
+    required: ['activity_id'],
+    additionalProperties: false,
+  },
+};
+
 export const listActivitiesTool = {
   name: 'list_activities',
   description: 'List activities (changes/updates) from Productive.io with filtering options for tracking recent work',

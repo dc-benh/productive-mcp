@@ -122,6 +122,16 @@
   - **Priority**: Low - code consolidation and maintainability improvement
   - **Estimated effort**: 5-7 hours for refactoring and integration
 
+- [x] **Comment editing and deletion** - Add update/delete operations for comments
+  - **Implemented**: `update_task_comment` (PATCH /comments/:id) and `delete_task_comment` (DELETE /comments/:id)
+  - Also added `get_comment` (single-comment lookup by ID) and `get_activity` (resolves `taskActivityId` from Productive URLs to the underlying item — when item_type=Comment, pair with `get_comment`)
+
+- [ ] **Comment visibility support** - Add `private` parameter to `add_task_comment`
+  - **Issue**: Comments created via MCP default to "Hidden from client" (private). No way to control visibility.
+  - **Impact**: Summary comments intended for client review are hidden, requiring manual toggle in Productive UI.
+  - **Priority**: High - frequently need client-visible comments for QA/deployment updates
+  - **Estimated effort**: 1-2 hours (Productive API likely supports a `private` or `visibility` attribute on comment creation/update)
+
 - [ ] **Time entry editing and deletion** - Add CRUD operations for time entries
   - **Issue**: Only creation is currently supported, no editing or deletion
   - **Enhancement**: Add tools for updating and deleting time entries

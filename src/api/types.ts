@@ -357,6 +357,16 @@ export interface ProductiveCommentCreate {
   };
 }
 
+export interface ProductiveCommentUpdate {
+  data: {
+    type: 'comments';
+    id: string;
+    attributes: {
+      body: string;
+    };
+  };
+}
+
 export interface ProductiveWorkflowStatus {
   id: string;
   type: 'workflow_statuses';

@@ -13,6 +13,7 @@ import {
   ProductiveTimeEntry,
   ProductiveDeal,
   ProductivePage,
+  ProductiveIncludedResource,
   ProductiveResponse,
   ProductiveSingleResponse,
   ProductiveTaskCreate,
@@ -20,6 +21,7 @@ import {
   ProductiveBoardCreate,
   ProductiveTaskListCreate,
   ProductiveCommentCreate,
+  ProductiveCommentUpdate,
   ProductiveTimeEntryCreate,
   ProductiveError
 } from './types.js';
@@ -390,6 +392,44 @@ export class ProductiveAPIClient {
       method: 'POST',
       body: JSON.stringify(commentData),
     });
+  }
+
+  async getComment(commentId: string): Promise<ProductiveSingleResponse<ProductiveComment> & { included?: ProductiveIncludedResource[] }> {
+    return this.makeRequest<ProductiveSingleResponse<ProductiveComment> & { included?: ProductiveIncludedResource[] }>(
+      `comments/${commentId}?include=creator`
+    );
+  }
+
+  async updateComment(commentId: string, commentData: ProductiveCommentUpdate): Promise<ProductiveSingleResponse<ProductiveComment>> {
+    return this.makeRequest<ProductiveSingleResponse<ProductiveComment>>(`comments/${commentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(commentData),
+    });
+  }
+
+  async deleteComment(commentId: string): Promise<void> {
+    const url = `${this.config.PRODUCTIVE_API_BASE_URL}comments/${commentId}`;
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      let detail = `status ${response.status}`;
+      try {
+        const errorData = await response.json() as ProductiveError;
+        detail = errorData.errors?.[0]?.detail || detail;
+      } catch {
+        // Non-JSON error body — keep the status
+      }
+      throw new Error(`Failed to delete comment ${commentId}: ${detail}`);
+    }
+  }
+
+  async getActivity(activityId: string): Promise<ProductiveSingleResponse<ProductiveActivity> & { included?: ProductiveIncludedResource[] }> {
+    return this.makeRequest<ProductiveSingleResponse<ProductiveActivity> & { included?: ProductiveIncludedResource[] }>(
+      `activities/${activityId}`
+    );
   }
 
   async listWorkflowStatuses(params?: {

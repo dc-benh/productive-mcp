@@ -170,8 +170,8 @@ export async function getTaskTool(
     // Import and use config directly
     const config = await import('../config/index.js').then(m => m.getConfig());
     
-    // Create URL with task_list included
-    const url = `${config.PRODUCTIVE_API_BASE_URL}tasks/${params.task_id}?include=task_list,assignee,workflow_status`;
+    // Create URL with task_list and parent_task included
+    const url = `${config.PRODUCTIVE_API_BASE_URL}tasks/${params.task_id}?include=task_list,assignee,workflow_status,parent_task`;
     
     // Create request with proper headers from config
     const response = await fetch(url, {
@@ -269,15 +269,25 @@ export async function getTaskTool(
     // Include task list ID information if available
     if (taskListId) {
       text += `Task List ID: ${taskListId}\n`;
-      
-    // If there's included data for the task list, include the name
-    console.log('Included data:', JSON.stringify(data.included));
+
     if (data.included && Array.isArray(data.included)) {
       const taskList = data.included.find((item: any) => item.type === 'task_lists' && item.id === taskListId);
       if (taskList) {
         text += `Task List: ${taskList.attributes.name}\n`;
       }
     }
+    }
+
+    // Include parent task information if available
+    const parentTaskId = task.relationships?.parent_task?.data?.id;
+    if (parentTaskId) {
+      text += `Parent Task ID: ${parentTaskId}\n`;
+      if (data.included && Array.isArray(data.included)) {
+        const parentTask = data.included.find((item: any) => item.type === 'tasks' && item.id === parentTaskId);
+        if (parentTask) {
+          text += `Parent Task: ${parentTask.attributes.title}\n`;
+        }
+      }
     }
     
     return {
@@ -366,6 +376,99 @@ export const getTaskDefinition = {
   },
 };
 
+const listSubtasksSchema = z.object({
+  task_id: z.string().min(1, 'Parent task ID is required'),
+  status: z.enum(['open', 'closed']).optional(),
+  limit: z.number().min(1).max(200).default(50).optional(),
+});
+
+export async function listSubtasksTool(
+  client: ProductiveAPIClient,
+  args: unknown
+): Promise<{ content: Array<{ type: string; text: string }> }> {
+  try {
+    const params = listSubtasksSchema.parse(args || {});
+
+    const response = await client.listSubtasks({
+      parent_task_id: params.task_id,
+      status: params.status,
+      limit: params.limit,
+    });
+
+    if (!response || !response.data || response.data.length === 0) {
+      return {
+        content: [{
+          type: 'text',
+          text: `No subtasks found for task ${params.task_id}.`,
+        }],
+      };
+    }
+
+    const subtasksText = response.data.filter(task => task && task.attributes).map(task => {
+      const assigneeId = task.relationships?.assignee?.data?.id;
+      const assigneeName = resolvePersonName(assigneeId, response.included);
+      const workflowStatusName = resolveWorkflowStatus(task, response.included);
+      const fallbackStatus = task.attributes.status === 1 ? 'open' : task.attributes.status === 2 ? 'closed' : `status ${task.attributes.status}`;
+      const statusText = workflowStatusName || fallbackStatus;
+      const assigneeDisplay = assigneeName
+        ? `Assignee: ${assigneeName} (ID: ${assigneeId})`
+        : assigneeId ? `Assignee ID: ${assigneeId}` : 'Unassigned';
+      return `• ${task.attributes.title} (ID: ${task.id})
+  Status: ${statusText}
+  ${task.attributes.due_date ? `Due: ${task.attributes.due_date}` : 'No due date'}
+  ${assigneeDisplay}`;
+    }).join('\n\n');
+
+    const summary = `Task ${params.task_id} has ${response.data.length} subtask${response.data.length !== 1 ? 's' : ''}${response.meta?.total_count ? ` (showing ${response.data.length} of ${response.meta.total_count})` : ''}:\n\n${subtasksText}`;
+
+    return {
+      content: [{
+        type: 'text',
+        text: summary,
+      }],
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `Invalid parameters: ${error.errors.map(e => e.message).join(', ')}`
+      );
+    }
+
+    throw new McpError(
+      ErrorCode.InternalError,
+      error instanceof Error ? error.message : 'Unknown error occurred'
+    );
+  }
+}
+
+export const listSubtasksDefinition = {
+  name: 'list_subtasks',
+  description: 'List subtasks of a given parent task. Use this to explore the subtask hierarchy of a task.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      task_id: {
+        type: 'string',
+        description: 'The ID of the parent task to list subtasks for (required)',
+      },
+      status: {
+        type: 'string',
+        enum: ['open', 'closed'],
+        description: 'Filter subtasks by status (open or closed)',
+      },
+      limit: {
+        type: 'number',
+        description: 'Number of subtasks to return (1-200)',
+        minimum: 1,
+        maximum: 200,
+        default: 50,
+      },
+    },
+    required: ['task_id'],
+  },
+};
+
 const createTaskSchema = z.object({
   title: z.string().min(1, 'Task title is required'),
   description: z.string().optional(),
@@ -374,6 +477,7 @@ const createTaskSchema = z.object({
   board_id: z.string().optional(),
   task_list_id: z.string().optional(),
   assignee_id: z.string().optional(),
+  parent_task_id: z.string().optional(),
   due_date: z.string().optional(),
   status: z.enum(['open', 'closed']).optional().default('open'),
 });
@@ -450,7 +554,16 @@ export async function createTaskTool(
         },
       };
     }
-    
+
+    if (params.parent_task_id) {
+      taskData.data.relationships.parent_task = {
+        data: {
+          id: params.parent_task_id,
+          type: 'tasks' as const,
+        },
+      };
+    }
+
     const response = await client.createTask(taskData);
     
     let text = `Task created successfully!\n`;
@@ -477,6 +590,9 @@ export async function createTaskTool(
       if (params.assignee_id === 'me' && config?.PRODUCTIVE_USER_ID) {
         text += ` (me)`;
       }
+    }
+    if (params.parent_task_id) {
+      text += `\nParent Task ID: ${params.parent_task_id}`;
     }
     if (response.data.attributes.created_at) {
       text += `\nCreated at: ${response.data.attributes.created_at}`;
@@ -536,6 +652,10 @@ export const createTaskDefinition = {
       assignee_id: {
         type: 'string',
         description: 'ID of the person to assign the task to. If PRODUCTIVE_USER_ID is configured in environment, "me" refers to that user.',
+      },
+      parent_task_id: {
+        type: 'string',
+        description: 'ID of the parent task to create this as a subtask of. The subtask inherits the parent\'s project context.',
       },
       due_date: {
         type: 'string',

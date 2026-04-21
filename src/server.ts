@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { getConfig } from './config/index.js';
 import { ProductiveAPIClient } from './api/client.js';
 import { listProjectsTool, listProjectsDefinition } from './tools/projects.js';
-import { listTasksTool, getProjectTasksTool, getTaskTool, createTaskTool, updateTaskAssignmentTool, updateTaskDetailsTool, listTasksDefinition, getProjectTasksDefinition, getTaskDefinition, createTaskDefinition, updateTaskAssignmentDefinition, updateTaskDetailsDefinition } from './tools/tasks.js';
+import { listTasksTool, getProjectTasksTool, getTaskTool, createTaskTool, updateTaskAssignmentTool, updateTaskDetailsTool, listSubtasksTool, listTasksDefinition, getProjectTasksDefinition, getTaskDefinition, createTaskDefinition, updateTaskAssignmentDefinition, updateTaskDetailsDefinition, listSubtasksDefinition } from './tools/tasks.js';
 import { listCompaniesTool, listCompaniesDefinition } from './tools/companies.js';
 import { myTasksTool, myTasksDefinition } from './tools/my-tasks.js';
 import { listBoards, createBoard, listBoardsTool, createBoardTool } from './tools/boards.js';
@@ -67,6 +67,7 @@ export async function createServer() {
       listTasksDefinition,
       getProjectTasksDefinition,
       getTaskDefinition,
+      listSubtasksDefinition,
       updateTaskStatusDefinition,
       listWorkflowStatusesDefinition,
       myTasksDefinition,
@@ -122,7 +123,10 @@ export async function createServer() {
         
       case 'get_task':
         return await getTaskTool(apiClient, args);
-        
+
+      case 'list_subtasks':
+        return await listSubtasksTool(apiClient, args);
+
       case 'my_tasks':
         return await myTasksTool(apiClient, config, args);
         

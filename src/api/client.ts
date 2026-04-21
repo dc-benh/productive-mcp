@@ -283,6 +283,36 @@ export class ProductiveAPIClient {
     return this.makeRequest<ProductiveSingleResponse<ProductiveTask>>(`tasks/${taskId}`);
   }
 
+  async listSubtasks(params: {
+    parent_task_id: string;
+    status?: 'open' | 'closed';
+    limit?: number;
+    page?: number;
+  }): Promise<ProductiveResponse<ProductiveTask>> {
+    const queryParams = new URLSearchParams();
+
+    queryParams.append('include', 'assignee,workflow_status');
+    queryParams.append('filter[parent_task_id]', params.parent_task_id);
+
+    if (params.status) {
+      const statusValue = params.status === 'open' ? '1' : '2';
+      queryParams.append('filter[status]', statusValue);
+    }
+
+    if (params.limit) {
+      queryParams.append('page[size]', params.limit.toString());
+    }
+
+    if (params.page) {
+      queryParams.append('page[number]', params.page.toString());
+    }
+
+    const queryString = queryParams.toString();
+    const path = `tasks?${queryString}`;
+
+    return this.makeRequest<ProductiveResponse<ProductiveTask>>(path);
+  }
+
   async updateTask(taskId: string, taskData: ProductiveTaskUpdate): Promise<ProductiveSingleResponse<ProductiveTask>> {
     return this.makeRequest<ProductiveSingleResponse<ProductiveTask>>(`tasks/${taskId}`, {
       method: 'PATCH',

@@ -202,21 +202,10 @@ const createDocSchema = z.object({
 });
 
 /**
- * Convert plain text to Productive's ProseMirror-like JSON doc format.
- * Splits on double newlines into paragraphs.
- */
-function textToDocBody(text: string): string {
-  const paragraphs = text.split(/\n{2,}/).filter(p => p.trim());
-  const content = paragraphs.map(p => ({
-    type: 'paragraph',
-    content: [{ type: 'text', text: p.trim() }],
-  }));
-  return JSON.stringify({ type: 'doc', content });
-}
-
-/**
- * Normalize a doc body value into a valid JSON string for the Productive API.
- * Handles: objects (from MCP parsing), valid JSON strings, truncated JSON, and plain text.
+ * Normalize a doc body value for the Productive API.
+ * The API natively handles plain text, HTML, and ProseMirror JSON —
+ * pass content through without client-side conversion so the server
+ * can process it correctly (including versioning and ID generation).
  */
 function normalizeDocBody(body: unknown): string {
   // Case 1: body arrived as a parsed object (MCP framework may parse JSON params)
@@ -235,24 +224,22 @@ function normalizeDocBody(body: unknown): string {
     throw new McpError(ErrorCode.InvalidParams, 'Body must be a string or doc JSON object');
   }
 
-  // Case 2: looks like JSON doc format — validate it fully
+  // Guard against truncated JSON (e.g. from output length limits).
+  // Valid ProseMirror JSON must parse cleanly; anything else is plain text or HTML.
   if (body.trimStart().startsWith('{')) {
     try {
-      const parsed = JSON.parse(body);
-      if (parsed?.type === 'doc' && Array.isArray(parsed?.content)) {
-        return body; // Valid JSON doc string, pass through
-      }
+      JSON.parse(body);
     } catch {
-      // Starts with { but fails to parse — likely truncated JSON. Reject it.
       throw new McpError(
         ErrorCode.InvalidParams,
-        'Body appears to be JSON but failed to parse (possibly truncated). Cannot safely update.'
+        'Body appears to be JSON but failed to parse (possibly truncated). Cannot safely save.'
       );
     }
   }
 
-  // Case 3: plain text — convert to doc format
-  return textToDocBody(body);
+  // Pass through as-is: the Productive API handles plain text, HTML,
+  // and ProseMirror JSON natively with proper editor state management.
+  return body;
 }
 
 export async function createDocTool(
@@ -265,17 +252,25 @@ export async function createDocTool(
     // Normalize body: handles objects, JSON strings, plain text, and truncated JSON
     const body = params.body !== undefined ? normalizeDocBody(params.body) : undefined;
 
-    const parentId = params.parent_page_id
-      ? parseInt(params.parent_page_id, 10)
-      : undefined;
+    // Resolve parent_page_id and root_page_id.
+    // When nesting under a non-root page, root_page_id must point to the
+    // actual root doc, not the immediate parent.
+    let parentAttrs: { parent_page_id: number; root_page_id: number } | undefined;
+    if (params.parent_page_id) {
+      const parentId = parseInt(params.parent_page_id, 10);
+      const parentPage = await client.getPage(params.parent_page_id);
+      const parentRootId = parentPage.data.relationships?.root_page?.data?.id;
+      const rootId = parentRootId ? parseInt(parentRootId, 10) : parentId;
+      parentAttrs = { parent_page_id: parentId, root_page_id: rootId };
+    }
 
     const response = await client.createPage({
       data: {
         type: 'pages',
         attributes: {
           title: params.title,
-          ...(body ? { body } : {}),
-          ...(parentId ? { parent_page_id: parentId, root_page_id: parentId } : {}),
+          ...(body ? { body, version_number: 1 } : {}),
+          ...(parentAttrs ?? {}),
         },
         relationships: {
           project: {
@@ -310,7 +305,7 @@ export async function createDocTool(
 
 export const createDocDefinition = {
   name: 'create_doc',
-  description: 'Create a new doc/page in Productive.io. Can create root docs or sub-pages under an existing doc. Body can be plain text (auto-converted) or raw ProseMirror JSON.',
+  description: 'Create a new doc/page in Productive.io. Can create root docs or sub-pages under an existing doc. Body supports plain text, HTML (for rich formatting), or raw ProseMirror JSON.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -320,7 +315,7 @@ export const createDocDefinition = {
       },
       body: {
         type: 'string',
-        description: 'Content of the doc. Plain text (auto-converted to doc format) or raw ProseMirror JSON (if starts with {"type":"doc",...})',
+        description: 'Content of the doc. Supports plain text, HTML (for rich formatting with tables, headings, bold, lists), or raw ProseMirror JSON. HTML is recommended for rich content.',
       },
       project_id: {
         type: 'string',
@@ -357,8 +352,14 @@ export async function updateDocTool(
       );
     }
 
-    // Normalize body: handles objects, JSON strings, plain text, and truncated JSON
+    // Normalize body: handles objects, JSON strings, plain text, and HTML
     const body = params.body !== undefined ? normalizeDocBody(params.body) : undefined;
+
+    // Fetch current page to get version_number for optimistic concurrency control.
+    // The API requires version_number to be incremented by exactly 1.
+    const current = await client.getPage(params.page_id);
+    const currentVersion = current.data.attributes.version_number;
+    const nextVersion = currentVersion ? currentVersion + 1 : 1;
 
     const response = await client.updatePage(params.page_id, {
       data: {
@@ -367,6 +368,7 @@ export async function updateDocTool(
         attributes: {
           ...(params.title ? { title: params.title } : {}),
           ...(body !== undefined ? { body } : {}),
+          version_number: nextVersion,
         },
       },
     });
@@ -378,7 +380,8 @@ export async function updateDocTool(
     if (params.title) text += `✓ Title updated\n`;
     if (params.body !== undefined) text += `✓ Body updated\n`;
     text += `Updated: ${page.attributes.updated_at}\n`;
-    text += `\n⚠️ Note: Changes may take up to 1 hour to appear if the doc is open in the UI.`;
+    text += `Version: ${page.attributes.version_number}\n`;
+    text += `\n⚠️ Note: Do not update while the doc is open in the UI — it will cause a conflict.`;
 
     return { content: [{ type: 'text', text }] };
   } catch (error) {
@@ -389,16 +392,21 @@ export async function updateDocTool(
       );
     }
     if (error instanceof McpError) throw error;
-    throw new McpError(
-      ErrorCode.InternalError,
-      error instanceof Error ? error.message : 'Unknown error occurred'
-    );
+    // Surface version conflict as a clear message
+    const msg = error instanceof Error ? error.message : 'Unknown error occurred';
+    if (msg.includes('version_number') || msg.includes('must be incremented')) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        'Version conflict: the page was modified by someone else (or is open in the UI). Close the page and try again.'
+      );
+    }
+    throw new McpError(ErrorCode.InternalError, msg);
   }
 }
 
 export const updateDocDefinition = {
   name: 'update_doc',
-  description: 'Update an existing doc/page in Productive.io. Can update title and/or body. WARNING: Do not update while the doc is open in the UI. Body can be plain text or raw ProseMirror JSON.',
+  description: 'Update an existing doc/page in Productive.io. Can update title and/or body. WARNING: Do not update while the doc is open in the UI. Body supports plain text, HTML (for rich formatting), or raw ProseMirror JSON.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -412,7 +420,7 @@ export const updateDocDefinition = {
       },
       body: {
         type: 'string',
-        description: 'New content. Plain text (auto-converted) or raw ProseMirror JSON. Use empty string to clear.',
+        description: 'New content. Supports plain text, HTML (for rich formatting), or raw ProseMirror JSON. Use empty string to clear.',
       },
     },
     required: ['page_id'],

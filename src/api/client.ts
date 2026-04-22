@@ -855,6 +855,7 @@ export class ProductiveAPIClient {
       attributes: {
         title: string;
         body?: string;
+        version_number?: number;
         parent_page_id?: number;
         root_page_id?: number;
       };
@@ -878,6 +879,7 @@ export class ProductiveAPIClient {
       attributes: {
         title?: string;
         body?: string;
+        version_number?: number;
       };
     };
   }): Promise<ProductiveSingleResponse<ProductivePage>> {

@@ -398,48 +398,75 @@ export async function updatePageTool(
 
     const body = params.body !== undefined ? normalizePageBody(params.body) : undefined;
 
-    // Fetch current page to get version_number for optimistic concurrency control.
+    // Fetch current page for metadata
     const current = await client.getPage(params.page_id);
-    const currentVersion = current.data.attributes.version_number;
-    const nextVersion = currentVersion ? currentVersion + 1 : 1;
-
-    // Resolve root page ID for collab sync (needed for JWT scoping)
     const rootPageId = current.data.relationships?.root_page?.data?.id ?? params.page_id;
 
-    const response = await client.updatePage(params.page_id, {
-      data: {
-        type: 'pages',
-        id: params.page_id,
-        attributes: {
-          ...(params.title ? { title: params.title } : {}),
-          ...(body !== undefined ? { body } : {}),
-          version_number: nextVersion,
-        },
-      },
-    });
-
-    const page = response.data;
     let text = `Page updated successfully!\n`;
-    text += `ID: ${page.id}\n`;
-    text += `Title: ${page.attributes.title}\n`;
-    if (params.title) text += `✓ Title updated\n`;
-    if (params.body !== undefined) text += `✓ Body updated\n`;
-    text += `Updated: ${page.attributes.updated_at}\n`;
-    text += `Version: ${page.attributes.version_number}\n`;
+    text += `ID: ${params.page_id}\n`;
 
-    // Sync body to collab server so pages opened in UI reflect the change
+    // Title updates go through REST API (collab doesn't handle titles)
+    if (params.title) {
+      const currentVersion = current.data.attributes.version_number;
+      const nextVersion = currentVersion ? currentVersion + 1 : 1;
+
+      const response = await client.updatePage(params.page_id, {
+        data: {
+          type: 'pages',
+          id: params.page_id,
+          attributes: {
+            title: params.title,
+            version_number: nextVersion,
+          },
+        },
+      });
+      text += `Title: ${response.data.attributes.title}\n`;
+      text += `✓ Title updated\n`;
+    } else {
+      text += `Title: ${current.data.attributes.title}\n`;
+    }
+
+    // Body updates go through collab channel ONLY (not REST API).
+    // Writing body to both REST API and collab causes version conflicts
+    // that result in "Unsaved" badges and autorecovery copies in the UI.
     if (body !== undefined && config) {
-      // Re-fetch to get the server-processed ProseMirror JSON
-      const updated = await client.getPage(params.page_id);
-      const storedBody = updated.data.attributes.body;
-      if (storedBody) {
-        const warning = await syncPageToCollab(config, params.page_id, rootPageId, storedBody);
-        if (warning) {
-          text += `\n⚠️ ${warning}`;
-        } else {
-          text += `\n✓ Collab server synced`;
-        }
+      // If body is HTML/text (not ProseMirror JSON), we need REST API to convert it.
+      // Write it, read back the ProseMirror JSON, then use that for collab sync.
+      let pmBody = body;
+      const isJson = body.trimStart().startsWith('{');
+      if (!isJson) {
+        // HTML/text body: use REST API as a converter only
+        const currentVersion = current.data.attributes.version_number;
+        const nextVersion = currentVersion ? currentVersion + 1 : 1;
+        await client.updatePage(params.page_id, {
+          data: {
+            type: 'pages',
+            id: params.page_id,
+            attributes: { body, version_number: nextVersion },
+          },
+        });
+        const converted = await client.getPage(params.page_id);
+        pmBody = converted.data.attributes.body || body;
       }
+
+      const warning = await syncPageToCollab(config, params.page_id, rootPageId, pmBody);
+      if (warning) {
+        text += `\n⚠️ ${warning}`;
+      } else {
+        text += `✓ Body updated via collab sync\n`;
+      }
+    } else if (body !== undefined) {
+      // No config available - fall back to REST API only
+      const currentVersion = current.data.attributes.version_number;
+      const nextVersion = currentVersion ? currentVersion + 1 : 1;
+      await client.updatePage(params.page_id, {
+        data: {
+          type: 'pages',
+          id: params.page_id,
+          attributes: { body, version_number: nextVersion },
+        },
+      });
+      text += `✓ Body updated (REST API only - may show "Unsaved" in UI)\n`;
     }
 
     return { content: [{ type: 'text', text }] };

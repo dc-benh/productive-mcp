@@ -1,29 +1,26 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, ListPromptsRequestSchema, GetPromptRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod';
 import { getConfig } from './config/index.js';
 import { ProductiveAPIClient } from './api/client.js';
 import { listProjectsTool, listProjectsDefinition } from './tools/projects.js';
-import { listTasksTool, getProjectTasksTool, getTaskTool, createTaskTool, updateTaskAssignmentTool, updateTaskDetailsTool, listSubtasksTool, listTasksDefinition, getProjectTasksDefinition, getTaskDefinition, createTaskDefinition, updateTaskAssignmentDefinition, updateTaskDetailsDefinition, listSubtasksDefinition } from './tools/tasks.js';
+import { listTasksTool, getProjectTasksTool, getTaskTool, createTaskTool, updateTaskAssignmentTool, updateTaskDetailsTool, deleteTaskTool, listSubtasksTool, listTasksDefinition, getProjectTasksDefinition, getTaskDefinition, createTaskDefinition, updateTaskAssignmentDefinition, updateTaskDetailsDefinition, deleteTaskDefinition, listSubtasksDefinition } from './tools/tasks.js';
 import { listCompaniesTool, listCompaniesDefinition } from './tools/companies.js';
 import { myTasksTool, myTasksDefinition } from './tools/my-tasks.js';
 import { listBoards, createBoard, listBoardsTool, createBoardTool } from './tools/boards.js';
-import { listTaskLists, createTaskList, listTaskListsTool, createTaskListTool } from './tools/task-lists.js';
+import { listTaskLists, createTaskList, listTaskListsTool, createTaskListTool, getTaskList, getTaskListDefinition, updateTaskList, updateTaskListDefinition, archiveTaskList, archiveTaskListDefinition, restoreTaskList, restoreTaskListDefinition, copyTaskList, copyTaskListDefinition, moveTaskList, moveTaskListDefinition, repositionTaskList, repositionTaskListDefinition } from './tools/task-lists.js';
 import { whoAmI, whoAmITool } from './tools/whoami.js';
 import { listActivities, listActivitiesTool, getActivity, getActivityTool } from './tools/activities.js';
 import { getRecentUpdates, getRecentUpdatesTool } from './tools/recent-updates.js';
 import {
-  listCommentsTool,
-  listCommentsDefinition,
-  addTaskCommentTool,
-  addTaskCommentDefinition,
-  getCommentTool,
-  getCommentDefinition,
-  updateTaskCommentTool,
-  updateTaskCommentDefinition,
-  deleteTaskCommentTool,
-  deleteTaskCommentDefinition,
+  listCommentsTool, listCommentsDefinition,
+  addTaskCommentTool, addTaskCommentDefinition,
+  getCommentTool, getCommentDefinition,
+  updateCommentTool, updateCommentDefinition,
+  deleteCommentTool, deleteCommentDefinition,
+  pinCommentTool, pinCommentDefinition,
+  unpinCommentTool, unpinCommentDefinition,
+  addCommentReactionTool, addCommentReactionDefinition,
 } from './tools/comments.js';
 import { updateTaskStatusTool, updateTaskStatusDefinition } from './tools/task-status.js';
 import { listWorkflowStatusesTool, listWorkflowStatusesDefinition } from './tools/workflow-statuses.js';
@@ -32,18 +29,29 @@ import { updateTaskSprint, updateTaskSprintTool } from './tools/task-sprint.js';
 import { moveTaskToList, moveTaskToListTool } from './tools/task-list-move.js';
 import { addToBacklog, addToBacklogTool } from './tools/task-backlog.js';
 import { taskRepositionTool, taskRepositionDefinition, taskRepositionSchema } from './tools/task-reposition.js';
-import { listDocsTool, listDocsDefinition, getDocTool, getDocDefinition, createDocTool, createDocDefinition, updateDocTool, updateDocDefinition } from './tools/docs.js';
+import {
+  listPagesTool, listPagesDefinition,
+  getPageTool, getPageDefinition,
+  createPageTool, createPageDefinition,
+  updatePageTool, updatePageDefinition,
+  deletePageTool, deletePageDefinition,
+  movePageTool, movePageDefinition,
+  copyPageTool, copyPageDefinition,
+} from './tools/pages.js';
+import { listFolders, listFoldersTool, getFolder, getFolderTool, createFolder, createFolderTool, updateFolder, updateFolderTool, archiveFolder, archiveFolderTool, restoreFolder, restoreFolderTool } from './tools/folders.js';
+import { createSubtaskTool, createSubtaskDefinition } from './tools/subtasks.js';
+import { listTodosTool, listTodosDefinition, getTodoTool, getTodoDefinition, createTodoTool, createTodoDefinition, updateTodoTool, updateTodoDefinition, deleteTodoTool, deleteTodoDefinition } from './tools/todos.js';
+import { listTaskDependenciesTool, listTaskDependenciesDefinition, getTaskDependencyTool, getTaskDependencyDefinition, createTaskDependencyTool, createTaskDependencyDefinition, deleteTaskDependencyTool, deleteTaskDependencyDefinition } from './tools/task-dependencies.js';
 import { generateTimesheetPrompt, timesheetPromptDefinition, generateQuickTimesheetPrompt, quickTimesheetPromptDefinition } from './prompts/timesheet.js';
 
 export async function createServer() {
-  // Initialize API client and config early to check user context
   const config = getConfig();
   const hasConfiguredUser = !!config.PRODUCTIVE_USER_ID;
-  
+
   const server = new Server(
     {
       name: 'productive-mcp',
-      version: '1.0.0',
+      version: '1.1.2',
       description: `MCP server for Productive.io API integration. Productive has a hierarchical structure: Customers → Projects → Boards → Task Lists → Tasks.${hasConfiguredUser ? ` IMPORTANT: When users say "me" or "assign to me", use "me" as the assignee_id value - it automatically resolves to the configured user ID ${config.PRODUCTIVE_USER_ID}.` : ' No user configured - set PRODUCTIVE_USER_ID to enable "me" context.'} Use the 'whoami' tool to check current user context.`,
     },
     {
@@ -54,174 +62,258 @@ export async function createServer() {
     }
   );
   const apiClient = new ProductiveAPIClient(config);
-  
-  // Register handlers
+
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
-      // Read tools (aligned with upstream)
+      // Core
       whoAmITool,
       listCompaniesDefinition,
       listProjectsDefinition,
+      // Boards & task lists
       listBoardsTool,
+      createBoardTool,
       listTaskListsTool,
+      createTaskListTool,
+      getTaskListDefinition,
+      updateTaskListDefinition,
+      archiveTaskListDefinition,
+      restoreTaskListDefinition,
+      copyTaskListDefinition,
+      moveTaskListDefinition,
+      repositionTaskListDefinition,
+      // Tasks
       listTasksDefinition,
       getProjectTasksDefinition,
       getTaskDefinition,
-      listSubtasksDefinition,
-      updateTaskStatusDefinition,
-      listWorkflowStatusesDefinition,
-      myTasksDefinition,
-      listActivitiesTool,
-      getActivityTool,
-      getRecentUpdatesTool,
-      listTimeEntriesDefinition,
-      listProjectDealsDefinition,
-      listDealServicesDefinition,
-      listServicesDefinition,
-      getProjectServicesDefinition,
-      listCommentsDefinition,
-      getCommentDefinition,
-      listDocsDefinition,
-      getDocDefinition,
-      // Write tools (re-enabled)
-      createDocDefinition,
-      updateDocDefinition,
-      addTaskCommentDefinition,
-      updateTaskCommentDefinition,
-      deleteTaskCommentDefinition,
       createTaskDefinition,
       updateTaskAssignmentDefinition,
       updateTaskDetailsDefinition,
-      createBoardTool,
-      createTaskListTool,
-      createTimeEntryDefinition,
-      updateTaskSprintTool,
+      updateTaskStatusDefinition,
+      deleteTaskDefinition,
+      myTasksDefinition,
+      taskRepositionDefinition,
       moveTaskToListTool,
       addToBacklogTool,
-      taskRepositionDefinition,
+      updateTaskSprintTool,
+      // Subtasks
+      listSubtasksDefinition,
+      createSubtaskDefinition,
+      // Task dependencies
+      listTaskDependenciesDefinition,
+      getTaskDependencyDefinition,
+      createTaskDependencyDefinition,
+      deleteTaskDependencyDefinition,
+      // Workflow statuses
+      listWorkflowStatusesDefinition,
+      // Activities
+      listActivitiesTool,
+      getActivityTool,
+      getRecentUpdatesTool,
+      // Comments
+      listCommentsDefinition,
+      getCommentDefinition,
+      addTaskCommentDefinition,
+      updateCommentDefinition,
+      deleteCommentDefinition,
+      pinCommentDefinition,
+      unpinCommentDefinition,
+      addCommentReactionDefinition,
+      // Pages/docs
+      listPagesDefinition,
+      getPageDefinition,
+      createPageDefinition,
+      updatePageDefinition,
+      deletePageDefinition,
+      movePageDefinition,
+      copyPageDefinition,
+      // Folders
+      listFoldersTool,
+      getFolderTool,
+      createFolderTool,
+      updateFolderTool,
+      archiveFolderTool,
+      restoreFolderTool,
+      // Todos
+      listTodosDefinition,
+      getTodoDefinition,
+      createTodoDefinition,
+      updateTodoDefinition,
+      deleteTodoDefinition,
+      // Time entries
+      listTimeEntriesDefinition,
+      createTimeEntryDefinition,
+      listServicesDefinition,
+      getProjectServicesDefinition,
+      listProjectDealsDefinition,
+      listDealServicesDefinition,
     ],
   }));
-  
+
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    
+
     switch (name) {
+      // Core
       case 'whoami':
         return await whoAmI(apiClient, args, config);
-        
       case 'list_companies':
         return await listCompaniesTool(apiClient, args);
-        
       case 'list_projects':
         return await listProjectsTool(apiClient, args);
-        
-      case 'list_tasks':
-        return await listTasksTool(apiClient, args);
-        
-      case 'get_project_tasks':
-        return await getProjectTasksTool(apiClient, args);
-        
-      case 'get_task':
-        return await getTaskTool(apiClient, args);
 
-      case 'list_subtasks':
-        return await listSubtasksTool(apiClient, args);
-
-      case 'my_tasks':
-        return await myTasksTool(apiClient, config, args);
-        
+      // Boards & task lists
       case 'list_boards':
         return await listBoards(apiClient, args);
-        
-      case 'list_workflow_statuses':
-        return await listWorkflowStatusesTool(apiClient, args);
-        
-      case 'list_task_lists':
-        return await listTaskLists(apiClient, args);
-        
-      case 'create_task_list':
-        return await createTaskList(apiClient, args);
-        
-      case 'list_activities':
-        return await listActivities(apiClient, args);
-
-      case 'get_activity':
-        return await getActivity(apiClient, args);
-
-      case 'get_recent_updates':
-        return await getRecentUpdates(apiClient, args);
-        
-      case 'list_time_entries':
-        return await listTimeEntresTool(apiClient, args, config);
-        
-      case 'list_project_deals':
-        return await listProjectDealsTool(apiClient, args);
-
-      case 'list_deal_services':
-        return await listDealServicesTool(apiClient, args);
-
-      case 'list_services':
-        return await listServicesTool(apiClient, args);
-
-      case 'get_project_services':
-        return await getProjectServicesTool(apiClient, args);
-
-      case 'list_comments':
-        return await listCommentsTool(apiClient, args);
-
-      case 'get_comment':
-        return await getCommentTool(apiClient, args);
-
-      case 'list_docs':
-        return await listDocsTool(apiClient, args);
-
-      case 'get_doc':
-        return await getDocTool(apiClient, args);
-
-      case 'create_doc':
-        return await createDocTool(apiClient, args);
-
-      case 'update_doc':
-        return await updateDocTool(apiClient, args);
-
-      case 'add_task_comment':
-        return await addTaskCommentTool(apiClient, args);
-
-      case 'update_task_comment':
-        return await updateTaskCommentTool(apiClient, args);
-
-      case 'delete_task_comment':
-        return await deleteTaskCommentTool(apiClient, args);
-
-      case 'create_task':
-        return await createTaskTool(apiClient, args, config);
-
-      case 'update_task_assignment':
-        return await updateTaskAssignmentTool(apiClient, args, config);
-
-      case 'update_task_details':
-        return await updateTaskDetailsTool(apiClient, args);
-
-      case 'update_task_status':
-        return await updateTaskStatusTool(apiClient, args);
-
       case 'create_board':
         return await createBoard(apiClient, args);
+      case 'list_task_lists':
+        return await listTaskLists(apiClient, args);
+      case 'create_task_list':
+        return await createTaskList(apiClient, args);
+      case 'get_task_list':
+        return await getTaskList(apiClient, args);
+      case 'update_task_list':
+        return await updateTaskList(apiClient, args);
+      case 'archive_task_list':
+        return await archiveTaskList(apiClient, args);
+      case 'restore_task_list':
+        return await restoreTaskList(apiClient, args);
+      case 'copy_task_list':
+        return await copyTaskList(apiClient, args);
+      case 'move_task_list':
+        return await moveTaskList(apiClient, args);
+      case 'reposition_task_list':
+        return await repositionTaskList(apiClient, args);
 
-      case 'create_time_entry':
-        return await createTimeEntryTool(apiClient, args, config);
-
+      // Tasks
+      case 'list_tasks':
+        return await listTasksTool(apiClient, args);
+      case 'get_project_tasks':
+        return await getProjectTasksTool(apiClient, args);
+      case 'get_task':
+        return await getTaskTool(apiClient, args);
+      case 'create_task':
+        return await createTaskTool(apiClient, args, config);
+      case 'update_task_assignment':
+        return await updateTaskAssignmentTool(apiClient, args, config);
+      case 'update_task_details':
+        return await updateTaskDetailsTool(apiClient, args);
+      case 'update_task_status':
+        return await updateTaskStatusTool(apiClient, args);
+      case 'delete_task':
+        return await deleteTaskTool(apiClient, args);
+      case 'my_tasks':
+        return await myTasksTool(apiClient, config, args);
+      case 'reposition_task':
+        return await taskRepositionTool(apiClient, taskRepositionSchema.parse(args));
+      case 'move_task_to_list':
+        return await moveTaskToList(apiClient, args);
+      case 'add_to_backlog':
+        return await addToBacklog(apiClient, args);
       case 'update_task_sprint':
         return await updateTaskSprint(apiClient, args);
 
-      case 'move_task_to_list':
-        return await moveTaskToList(apiClient, args);
+      // Subtasks
+      case 'list_subtasks':
+        return await listSubtasksTool(apiClient, args);
+      case 'create_subtask':
+        return await createSubtaskTool(apiClient, args);
 
-      case 'add_to_backlog':
-        return await addToBacklog(apiClient, args);
+      // Task dependencies
+      case 'list_task_dependencies':
+        return await listTaskDependenciesTool(apiClient, args);
+      case 'get_task_dependency':
+        return await getTaskDependencyTool(apiClient, args);
+      case 'create_task_dependency':
+        return await createTaskDependencyTool(apiClient, args);
+      case 'delete_task_dependency':
+        return await deleteTaskDependencyTool(apiClient, args);
 
-      case 'reposition_task':
-        return await taskRepositionTool(apiClient, taskRepositionSchema.parse(args));
+      // Workflow statuses
+      case 'list_workflow_statuses':
+        return await listWorkflowStatusesTool(apiClient, args);
+
+      // Activities
+      case 'list_activities':
+        return await listActivities(apiClient, args);
+      case 'get_activity':
+        return await getActivity(apiClient, args);
+      case 'get_recent_updates':
+        return await getRecentUpdates(apiClient, args);
+
+      // Comments
+      case 'list_comments':
+        return await listCommentsTool(apiClient, args);
+      case 'get_comment':
+        return await getCommentTool(apiClient, args);
+      case 'add_task_comment':
+        return await addTaskCommentTool(apiClient, args);
+      case 'update_comment':
+        return await updateCommentTool(apiClient, args);
+      case 'delete_comment':
+        return await deleteCommentTool(apiClient, args);
+      case 'pin_comment':
+        return await pinCommentTool(apiClient, args);
+      case 'unpin_comment':
+        return await unpinCommentTool(apiClient, args);
+      case 'add_comment_reaction':
+        return await addCommentReactionTool(apiClient, args);
+
+      // Pages/docs
+      case 'list_pages':
+        return await listPagesTool(apiClient, args);
+      case 'get_page':
+        return await getPageTool(apiClient, args);
+      case 'create_page':
+        return await createPageTool(apiClient, args);
+      case 'update_page':
+        return await updatePageTool(apiClient, args);
+      case 'delete_page':
+        return await deletePageTool(apiClient, args);
+      case 'move_page':
+        return await movePageTool(apiClient, args);
+      case 'copy_page':
+        return await copyPageTool(apiClient, args);
+
+      // Folders
+      case 'list_folders':
+        return await listFolders(apiClient, args);
+      case 'get_folder':
+        return await getFolder(apiClient, args);
+      case 'create_folder':
+        return await createFolder(apiClient, args);
+      case 'update_folder':
+        return await updateFolder(apiClient, args);
+      case 'archive_folder':
+        return await archiveFolder(apiClient, args);
+      case 'restore_folder':
+        return await restoreFolder(apiClient, args);
+
+      // Todos
+      case 'list_todos':
+        return await listTodosTool(apiClient, args);
+      case 'get_todo':
+        return await getTodoTool(apiClient, args);
+      case 'create_todo':
+        return await createTodoTool(apiClient, args);
+      case 'update_todo':
+        return await updateTodoTool(apiClient, args);
+      case 'delete_todo':
+        return await deleteTodoTool(apiClient, args);
+
+      // Time entries
+      case 'list_time_entries':
+        return await listTimeEntresTool(apiClient, args, config);
+      case 'create_time_entry':
+        return await createTimeEntryTool(apiClient, args, config);
+      case 'list_project_deals':
+        return await listProjectDealsTool(apiClient, args);
+      case 'list_deal_services':
+        return await listDealServicesTool(apiClient, args);
+      case 'list_services':
+        return await listServicesTool(apiClient, args);
+      case 'get_project_services':
+        return await getProjectServicesTool(apiClient, args);
 
       default:
         throw new Error(`Unknown tool: ${name}`);
@@ -238,25 +330,19 @@ export async function createServer() {
 
   server.setRequestHandler(GetPromptRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    
+
     switch (name) {
       case 'timesheet_entry':
         return await generateTimesheetPrompt(args);
-        
       case 'timesheet_step':
         return await generateQuickTimesheetPrompt(args);
-        
       default:
         throw new Error(`Unknown prompt: ${name}`);
     }
   });
-  
-  // Connect to stdio transport
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  
-  // Don't output anything to stdout/stderr after connecting
-  // as it can interfere with the MCP protocol
-  
+
   return server;
 }

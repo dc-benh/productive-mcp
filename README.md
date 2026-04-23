@@ -1,8 +1,33 @@
-# Productive.io MCP Server
+# Productive.io MCP Server (Fork)
 
-[![npm version](https://badge.fury.io/js/productive-mcp.svg)](https://www.npmjs.com/package/productive-mcp)
+> **This is the dotcollective fork** of [berwickgeek/productive-mcp](https://github.com/berwickgeek/productive-mcp) with additional features including real-time collab sync for page updates, comment visibility control, and activity lookup tools. **Do not install from npm** — that installs the upstream version without our enhancements.
 
-An MCP (Model Context Protocol) server that enables Claude Desktop, Claude Code, and other MCP-compatible clients to interact with the Productive.io API.
+## Quick Setup (DC Team)
+
+1. Clone the repo, then `npm install && npm run build`
+2. Add to your `.mcp.json` (project root or `~/.claude/`):
+
+```json
+{
+  "mcpServers": {
+    "productive": {
+      "command": "node",
+      "args": ["/absolute/path/to/productive-mcp/build/index.js"],
+      "env": {
+        "PRODUCTIVE_API_TOKEN": "your_token",
+        "PRODUCTIVE_ORG_ID": "1476",
+        "PRODUCTIVE_USER_ID": "your_person_id"
+      }
+    }
+  }
+}
+```
+
+3. Restart Claude Code / Claude Desktop
+
+To find your person ID, use the `whoami` tool after setup, or check your profile URL in Productive.
+
+---
 
 ## Features
 
@@ -21,7 +46,7 @@ An MCP (Model Context Protocol) server that enables Claude Desktop, Claude Code,
 - **User Context**: Supports "me" references when PRODUCTIVE_USER_ID is configured
 - **Activity Tracking**: View activities and recent updates across your organization
 
-## Installation
+## Installation (Upstream Content Below, Use with Caution)
 
 ### Via npm (Recommended)
 

@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { ProductiveAPIClient } from '../api/client.js';
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { ProductiveIncludedResource } from '../api/types.js';
+import { Config } from '../config/index.js';
+import { syncPageToCollab, normaliseNodeTypes } from './page-collab.js';
 
 /**
  * Convert Productive document JSON body to readable plain text.
@@ -92,7 +94,8 @@ function normalizePageBody(body: unknown): string {
   if (typeof body === 'object' && body !== null) {
     const obj = body as Record<string, unknown>;
     if (obj.type === 'doc' && Array.isArray(obj.content)) {
-      return JSON.stringify(body);
+      // Normalise node types to collab-compatible schema before storing
+      return JSON.stringify(normaliseNodeTypes(body));
     }
     throw new McpError(
       ErrorCode.InvalidParams,
@@ -104,15 +107,20 @@ function normalizePageBody(body: unknown): string {
     throw new McpError(ErrorCode.InvalidParams, 'Body must be a string or doc JSON object');
   }
 
-  // Guard against truncated JSON (e.g. from output length limits).
+  // Guard against truncated JSON and normalise ProseMirror node types.
   if (body.trimStart().startsWith('{')) {
+    let parsed: any;
     try {
-      JSON.parse(body);
+      parsed = JSON.parse(body);
     } catch {
       throw new McpError(
         ErrorCode.InvalidParams,
         'Body appears to be JSON but failed to parse (possibly truncated). Cannot safely save.'
       );
+    }
+    // If it's ProseMirror doc JSON, normalise node types to collab schema
+    if (parsed?.type === 'doc' && Array.isArray(parsed.content)) {
+      return JSON.stringify(normaliseNodeTypes(parsed));
     }
   }
 
@@ -378,7 +386,8 @@ const updatePageSchema = z.object({
 
 export async function updatePageTool(
   client: ProductiveAPIClient,
-  args: unknown
+  args: unknown,
+  config?: Config
 ): Promise<{ content: Array<{ type: string; text: string }> }> {
   try {
     const params = updatePageSchema.parse(args);
@@ -393,6 +402,9 @@ export async function updatePageTool(
     const current = await client.getPage(params.page_id);
     const currentVersion = current.data.attributes.version_number;
     const nextVersion = currentVersion ? currentVersion + 1 : 1;
+
+    // Resolve root page ID for collab sync (needed for JWT scoping)
+    const rootPageId = current.data.relationships?.root_page?.data?.id ?? params.page_id;
 
     const response = await client.updatePage(params.page_id, {
       data: {
@@ -414,7 +426,21 @@ export async function updatePageTool(
     if (params.body !== undefined) text += `✓ Body updated\n`;
     text += `Updated: ${page.attributes.updated_at}\n`;
     text += `Version: ${page.attributes.version_number}\n`;
-    text += `\n⚠️ Note: Do not update while the page is open in the UI — it will cause a conflict.`;
+
+    // Sync body to collab server so pages opened in UI reflect the change
+    if (body !== undefined && config) {
+      // Re-fetch to get the server-processed ProseMirror JSON
+      const updated = await client.getPage(params.page_id);
+      const storedBody = updated.data.attributes.body;
+      if (storedBody) {
+        const warning = await syncPageToCollab(config, params.page_id, rootPageId, storedBody);
+        if (warning) {
+          text += `\n⚠️ ${warning}`;
+        } else {
+          text += `\n✓ Collab server synced`;
+        }
+      }
+    }
 
     return { content: [{ type: 'text', text }] };
   } catch (error) {
@@ -432,7 +458,7 @@ export async function updatePageTool(
 
 export const updatePageDefinition = {
   name: 'update_page',
-  description: 'Update an existing page/document in Productive.io. Can update title and/or body. WARNING: Do not update while the page is open in the UI. Body supports plain text, HTML, or raw ProseMirror JSON. For lossless updates, use the raw body from get_page.',
+  description: 'Update an existing page/document in Productive.io. Can update title and/or body. Body updates are synced to the collab server so changes appear in the UI. Supports plain text, HTML, or raw ProseMirror JSON.',
   inputSchema: {
     type: 'object',
     properties: {

@@ -267,7 +267,7 @@ export async function createServer() {
       case 'create_page':
         return await createPageTool(apiClient, args);
       case 'update_page':
-        return await updatePageTool(apiClient, args);
+        return await updatePageTool(apiClient, args, config);
       case 'delete_page':
         return await deletePageTool(apiClient, args);
       case 'move_page':

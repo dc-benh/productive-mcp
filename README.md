@@ -1,6 +1,6 @@
 # Productive.io MCP Server (Fork)
 
-> **This is the dotcollective fork** of [berwickgeek/productive-mcp](https://github.com/berwickgeek/productive-mcp) with additional features including real-time collab sync for page updates, comment visibility control, and activity lookup tools. **Do not install from npm** — that installs the upstream version without our enhancements.
+> **This is a fork** of [berwickgeek/productive-mcp](https://github.com/berwickgeek/productive-mcp) with additional features including real-time collab sync for page updates, comment visibility control, and activity lookup tools. **Do not install from npm** — that installs the upstream version without our enhancements.
 
 ## Quick Setup (DC Team)
 

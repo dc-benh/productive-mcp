@@ -162,6 +162,7 @@ export class ProductiveAPIClient {
   async listTasks(params?: {
     project_id?: string;
     assignee_id?: string;
+    task_list_id?: string;
     status?: 'open' | 'closed';
     limit?: number;
     page?: number;
@@ -177,6 +178,10 @@ export class ProductiveAPIClient {
 
     if (params?.assignee_id) {
       queryParams.append('filter[assignee_id]', params.assignee_id);
+    }
+
+    if (params?.task_list_id) {
+      queryParams.append('filter[task_list_id]', params.task_list_id);
     }
 
     if (params?.status) {

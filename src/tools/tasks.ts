@@ -22,13 +22,17 @@ function resolveWorkflowStatus(task: { relationships?: Record<string, any> }, in
 const listTasksSchema = z.object({
   project_id: z.string().optional(),
   assignee_id: z.string().optional(),
+  task_list_id: z.string().optional(),
   status: z.enum(['open', 'closed']).optional(),
   limit: z.number().min(1).max(200).default(30).optional(),
+  page: z.number().min(1).optional(),
 });
 
 const getProjectTasksSchema = z.object({
   project_id: z.string().min(1, 'Project ID is required'),
   status: z.enum(['open', 'closed']).optional(),
+  page: z.number().min(1).optional(),
+  limit: z.number().min(1).max(200).optional(),
 });
 
 const getTaskSchema = z.object({
@@ -45,10 +49,12 @@ export async function listTasksTool(
     const response = await client.listTasks({
       project_id: params.project_id,
       assignee_id: params.assignee_id,
+      task_list_id: params.task_list_id,
       status: params.status,
       limit: params.limit,
+      page: params.page,
     });
-    
+
     if (!response || !response.data || response.data.length === 0) {
       return {
         content: [{
@@ -57,10 +63,12 @@ export async function listTasksTool(
         }],
       };
     }
-    
+
     const tasksText = response.data.filter(task => task && task.attributes).map(task => {
       const projectId = task.relationships?.project?.data?.id;
       const assigneeId = task.relationships?.assignee?.data?.id;
+      const taskListId = task.relationships?.task_list?.data?.id;
+      const parentTaskId = task.relationships?.parent_task?.data?.id;
       const assigneeName = resolvePersonName(assigneeId, response.included);
       const workflowStatusName = resolveWorkflowStatus(task, response.included);
       const fallbackStatus = task.attributes.status === 1 ? 'open' : task.attributes.status === 2 ? 'closed' : `status ${task.attributes.status}`;
@@ -68,15 +76,36 @@ export async function listTasksTool(
       const assigneeDisplay = assigneeName
         ? `Assignee: ${assigneeName} (ID: ${assigneeId})`
         : assigneeId ? `Assignee ID: ${assigneeId}` : 'Unassigned';
+
+      const timingParts: string[] = [];
+      if (task.attributes.initial_estimate !== undefined && task.attributes.initial_estimate !== null) {
+        timingParts.push(`initial_estimate=${task.attributes.initial_estimate}`);
+      }
+      if (task.attributes.worked_time !== undefined && task.attributes.worked_time !== null) {
+        timingParts.push(`worked_time=${task.attributes.worked_time}`);
+      }
+      if (task.attributes.billable_time !== undefined && task.attributes.billable_time !== null) {
+        timingParts.push(`billable_time=${task.attributes.billable_time}`);
+      }
+      if (task.attributes.remaining_time !== undefined && task.attributes.remaining_time !== null) {
+        timingParts.push(`remaining_time=${task.attributes.remaining_time}`);
+      }
+      const timingLine = timingParts.length > 0 ? `\n  Timing: ${timingParts.join(', ')}` : '';
+
       return `• ${task.attributes.title} (ID: ${task.id})
   Status: ${statusText}
   ${task.attributes.due_date ? `Due: ${task.attributes.due_date}` : 'No due date'}
   ${projectId ? `Project ID: ${projectId}` : ''}
-  ${assigneeDisplay}
+  ${taskListId ? `Task List ID: ${taskListId}` : ''}
+  ${parentTaskId ? `Parent Task ID: ${parentTaskId}` : ''}
+  ${assigneeDisplay}${timingLine}
   ${task.attributes.description ? `Description: ${task.attributes.description}` : ''}`;
     }).join('\n\n');
 
-    const summary = `Found ${response.data.length} task${response.data.length !== 1 ? 's' : ''}${response.meta?.total_count ? ` (showing ${response.data.length} of ${response.meta.total_count})` : ''}:\n\n${tasksText}`;
+    const pageInfo = response.meta?.current_page && response.meta?.total_pages
+      ? ` (page ${response.meta.current_page} of ${response.meta.total_pages})`
+      : '';
+    const summary = `Found ${response.data.length} task${response.data.length !== 1 ? 's' : ''}${response.meta?.total_count ? ` (showing ${response.data.length} of ${response.meta.total_count})` : ''}${pageInfo}:\n\n${tasksText}`;
     
     return {
       content: [{
@@ -105,13 +134,14 @@ export async function getProjectTasksTool(
 ): Promise<{ content: Array<{ type: string; text: string }> }> {
   try {
     const params = getProjectTasksSchema.parse(args);
-    
+
     const response = await client.listTasks({
       project_id: params.project_id,
       status: params.status,
-      limit: 200, // Get maximum tasks for a project
+      limit: params.limit ?? 200,
+      page: params.page,
     });
-    
+
     if (!response || !response.data || response.data.length === 0) {
       return {
         content: [{
@@ -120,7 +150,7 @@ export async function getProjectTasksTool(
         }],
       };
     }
-    
+
     const tasksText = response.data.filter(task => task && task.attributes).map(task => {
       const assigneeId = task.relationships?.assignee?.data?.id;
       const assigneeName = resolvePersonName(assigneeId, response.included);
@@ -137,7 +167,14 @@ export async function getProjectTasksTool(
   ${task.attributes.description ? `Description: ${task.attributes.description}` : ''}`;
     }).join('\n\n');
 
-    const summary = `Project ${params.project_id} has ${response.data.length} task${response.data.length !== 1 ? 's' : ''}:\n\n${tasksText}`;
+    const total = response.meta?.total_count;
+    const pageInfo = response.meta?.current_page && response.meta?.total_pages
+      ? ` (page ${response.meta.current_page} of ${response.meta.total_pages})`
+      : '';
+    const totalNote = total && total > response.data.length
+      ? ` of ${total} total — use page param to fetch more`
+      : '';
+    const summary = `Project ${params.project_id} has ${response.data.length} task${response.data.length !== 1 ? 's' : ''}${totalNote}${pageInfo}:\n\n${tasksText}`;
     
     return {
       content: [{
@@ -254,14 +291,22 @@ export async function getTaskTool(
       text += `Private: ${task.attributes.private ? 'Yes' : 'No'}\n`;
     }
     
-    if (task.attributes.initial_estimate) {
+    if (task.attributes.initial_estimate !== undefined && task.attributes.initial_estimate !== null) {
       text += `Initial Estimate: ${task.attributes.initial_estimate}\n`;
     }
-    
-    if (task.attributes.worked_time) {
+
+    if (task.attributes.worked_time !== undefined && task.attributes.worked_time !== null) {
       text += `Worked Time: ${task.attributes.worked_time}\n`;
     }
-    
+
+    if (task.attributes.billable_time !== undefined && task.attributes.billable_time !== null) {
+      text += `Billable Time: ${task.attributes.billable_time}\n`;
+    }
+
+    if (task.attributes.remaining_time !== undefined && task.attributes.remaining_time !== null) {
+      text += `Remaining Time: ${task.attributes.remaining_time}\n`;
+    }
+
     if (task.attributes.last_activity_at) {
       text += `Last Activity: ${task.attributes.last_activity_at}\n`;
     }
@@ -313,7 +358,7 @@ export async function getTaskTool(
 
 export const listTasksDefinition = {
   name: 'list_tasks',
-  description: 'Get a list of tasks from Productive.io',
+  description: 'Get a list of tasks from Productive.io. Supports filtering by project, assignee, task list, and status. Use page + limit to paginate through results larger than 200.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -325,6 +370,10 @@ export const listTasksDefinition = {
         type: 'string',
         description: 'Filter tasks by assignee ID',
       },
+      task_list_id: {
+        type: 'string',
+        description: 'Filter tasks by task list ID (Productive native filter[task_list_id]).',
+      },
       status: {
         type: 'string',
         enum: ['open', 'closed'],
@@ -332,10 +381,15 @@ export const listTasksDefinition = {
       },
       limit: {
         type: 'number',
-        description: 'Number of tasks to return (1-200)',
+        description: 'Number of tasks to return per page (1-200)',
         minimum: 1,
         maximum: 200,
         default: 30,
+      },
+      page: {
+        type: 'number',
+        description: 'Page number for pagination (1-indexed). Combine with limit to fetch beyond the first 200 results.',
+        minimum: 1,
       },
     },
   },
@@ -343,7 +397,7 @@ export const listTasksDefinition = {
 
 export const getProjectTasksDefinition = {
   name: 'get_project_tasks',
-  description: 'Get all tasks for a specific project. ALSO used as STEP 4 in timesheet workflow to find task_id for linking time entries to specific tasks. Workflow: list_projects → list_project_deals → list_deal_services → get_project_tasks → create_time_entry.',
+  description: 'Get all tasks for a specific project. Supports pagination via page + limit for projects with more than 200 tasks. ALSO used as STEP 4 in timesheet workflow to find task_id for linking time entries to specific tasks. Workflow: list_projects → list_project_deals → list_deal_services → get_project_tasks → create_time_entry.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -355,6 +409,17 @@ export const getProjectTasksDefinition = {
         type: 'string',
         enum: ['open', 'closed'],
         description: 'Filter by task status (open or closed)',
+      },
+      limit: {
+        type: 'number',
+        description: 'Number of tasks to return per page (1-200, default 200).',
+        minimum: 1,
+        maximum: 200,
+      },
+      page: {
+        type: 'number',
+        description: 'Page number (1-indexed) for projects with more than 200 tasks.',
+        minimum: 1,
       },
     },
     required: ['project_id'],
@@ -413,10 +478,26 @@ export async function listSubtasksTool(
       const assigneeDisplay = assigneeName
         ? `Assignee: ${assigneeName} (ID: ${assigneeId})`
         : assigneeId ? `Assignee ID: ${assigneeId}` : 'Unassigned';
+
+      const timingParts: string[] = [];
+      if (task.attributes.initial_estimate !== undefined && task.attributes.initial_estimate !== null) {
+        timingParts.push(`initial_estimate=${task.attributes.initial_estimate}`);
+      }
+      if (task.attributes.worked_time !== undefined && task.attributes.worked_time !== null) {
+        timingParts.push(`worked_time=${task.attributes.worked_time}`);
+      }
+      if (task.attributes.billable_time !== undefined && task.attributes.billable_time !== null) {
+        timingParts.push(`billable_time=${task.attributes.billable_time}`);
+      }
+      if (task.attributes.remaining_time !== undefined && task.attributes.remaining_time !== null) {
+        timingParts.push(`remaining_time=${task.attributes.remaining_time}`);
+      }
+      const timingLine = timingParts.length > 0 ? `\n  Timing: ${timingParts.join(', ')}` : '';
+
       return `• ${task.attributes.title} (ID: ${task.id})
   Status: ${statusText}
   ${task.attributes.due_date ? `Due: ${task.attributes.due_date}` : 'No due date'}
-  ${assigneeDisplay}`;
+  ${assigneeDisplay}${timingLine}`;
     }).join('\n\n');
 
     const summary = `Task ${params.task_id} has ${response.data.length} subtask${response.data.length !== 1 ? 's' : ''}${response.meta?.total_count ? ` (showing ${response.data.length} of ${response.meta.total_count})` : ''}:\n\n${subtasksText}`;

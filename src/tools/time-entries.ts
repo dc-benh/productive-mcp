@@ -133,31 +133,28 @@ export async function listTimeEntresTool(
       };
     }
     
+    const formatMinutes = (mins: number): string => {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+      return `${m}m`;
+    };
+
     const entriesText = response.data.map(entry => {
       const personId = entry.relationships?.person?.data?.id;
       const serviceId = entry.relationships?.service?.data?.id;
       const taskId = entry.relationships?.task?.data?.id;
       const projectId = entry.relationships?.project?.data?.id;
-      
-      const hours = Math.floor(entry.attributes.time / 60);
-      const minutes = entry.attributes.time % 60;
-      const timeDisplay = hours > 0 
-        ? (minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`)
-        : `${minutes}m`;
-      
-      let billableDisplay = '';
-      if (entry.attributes.billable_time !== undefined && entry.attributes.billable_time !== entry.attributes.time) {
-        const billableHours = Math.floor(entry.attributes.billable_time / 60);
-        const billableMinutes = entry.attributes.billable_time % 60;
-        const billableTimeDisplay = billableHours > 0 
-          ? (billableMinutes > 0 ? `${billableHours}h ${billableMinutes}m` : `${billableHours}h`)
-          : `${billableMinutes}m`;
-        billableDisplay = ` (Billable: ${billableTimeDisplay})`;
-      }
-      
+
+      const timeDisplay = formatMinutes(entry.attributes.time);
+      const billableDisplay = (entry.attributes.billable_time === undefined || entry.attributes.billable_time === null)
+        ? 'n/a'
+        : formatMinutes(entry.attributes.billable_time);
+
       return `• Time Entry (ID: ${entry.id})
   Date: ${entry.attributes.date}
-  Time: ${timeDisplay}${billableDisplay}
+  Time: ${timeDisplay}
+  Billable Time: ${billableDisplay}
   Note: ${entry.attributes.note || 'No note'}
   Person ID: ${personId || 'Unknown'}
   Service ID: ${serviceId || 'Unknown'}
@@ -166,12 +163,8 @@ export async function listTimeEntresTool(
     }).join('\n\n');
     
     const totalMinutes = response.data.reduce((sum, entry) => sum + entry.attributes.time, 0);
-    const totalHours = Math.floor(totalMinutes / 60);
-    const totalMins = totalMinutes % 60;
-    const totalDisplay = totalHours > 0 
-      ? (totalMins > 0 ? `${totalHours}h ${totalMins}m` : `${totalHours}h`)
-      : `${totalMins}m`;
-    
+    const totalDisplay = formatMinutes(totalMinutes);
+
     const summary = `Found ${response.data.length} time entr${response.data.length !== 1 ? 'ies' : 'y'}${response.meta?.total_count ? ` (showing ${response.data.length} of ${response.meta.total_count})` : ''}:\n\nTotal Time: ${totalDisplay}\n\n${entriesText}`;
     
     return {
